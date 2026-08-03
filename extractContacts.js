@@ -560,138 +560,136 @@ async function exportGroupContacts(targetGroup) {
   return { finalRecords, excelFilename, csvFilename };
 }
 
-// 1. Display QR Code for WhatsApp Pairing
-client.on('qr', (qr) => {
-  console.log('\n==================================================');
-  console.log('📱 Scan the QR code below using WhatsApp on your phone:');
-  console.log('   WhatsApp -> Settings / Linked Devices -> Link a Device');
-  console.log('==================================================\n');
-  qrcode.generate(qr, { small: true });
-});
+if (require.main === module) {
+  // 1. Display QR Code for WhatsApp Pairing in CLI Mode
+  client.on('qr', (qr) => {
+    console.log('\n==================================================');
+    console.log('📱 Scan the QR code below using WhatsApp on your phone:');
+    console.log('   WhatsApp -> Settings / Linked Devices -> Link a Device');
+    console.log('==================================================\n');
+    qrcode.generate(qr, { small: true });
+  });
 
-// 2. Client Authenticated & Ready
-client.on('ready', async () => {
-  console.log('\n==================================================');
-  console.log('🚀 Client is authenticated and ready!');
-  console.log('==================================================\n');
+  // 2. Client Authenticated & Ready in CLI Mode
+  client.on('ready', async () => {
+    console.log('\n==================================================');
+    console.log('🚀 Client is authenticated and ready!');
+    console.log('==================================================\n');
 
-  try {
-    console.log('⏳ Waiting 5 seconds for WhatsApp Web session to initialize...');
-    await new Promise((resolve) => setTimeout(resolve, 5000));
-
-    console.log('🔍 Fetching active group chats...');
-    let chats = [];
-
-    // Isolated inner try-catch for getChats()
     try {
-      chats = await client.getChats();
-    } catch (e) {
-      console.warn('⚠️ Standard client.getChats() encountered an issue, executing Store evaluation fallback...');
-    }
+      console.log('⏳ Waiting 5 seconds for WhatsApp Web session to initialize...');
+      await new Promise((resolve) => setTimeout(resolve, 5000));
 
-    if (!chats || chats.length === 0) {
-      chats = await safeEvaluate(async () => {
-        let chatModels = [];
-        try {
-          if (window.require) {
-            const collections = window.require('WAWebCollections');
-            if (collections && collections.Chat && typeof collections.Chat.getModelsArray === 'function') {
-              chatModels = collections.Chat.getModelsArray();
-            }
-          }
-        } catch (e) {}
+      console.log('🔍 Fetching active group chats...');
+      let chats = [];
 
-        if (!chatModels || chatModels.length === 0) {
+      try {
+        chats = await client.getChats();
+      } catch (e) {
+        console.warn('⚠️ Standard client.getChats() encountered an issue, executing Store evaluation fallback...');
+      }
+
+      if (!chats || chats.length === 0) {
+        chats = await safeEvaluate(async () => {
+          let chatModels = [];
           try {
-            if (window.Store && window.Store.Chat) {
-              if (typeof window.Store.Chat.getModelsArray === 'function') {
-                chatModels = window.Store.Chat.getModelsArray();
-              } else if (window.Store.Chat.models) {
-                chatModels = Array.from(window.Store.Chat.models);
-              } else if (window.Store.Chat._models) {
-                chatModels = Array.from(window.Store.Chat._models);
+            if (window.require) {
+              const collections = window.require('WAWebCollections');
+              if (collections && collections.Chat && typeof collections.Chat.getModelsArray === 'function') {
+                chatModels = collections.Chat.getModelsArray();
               }
             }
           } catch (e) {}
-        }
 
-        if (!chatModels) chatModels = [];
+          if (!chatModels || chatModels.length === 0) {
+            try {
+              if (window.Store && window.Store.Chat) {
+                if (typeof window.Store.Chat.getModelsArray === 'function') {
+                  chatModels = window.Store.Chat.getModelsArray();
+                } else if (window.Store.Chat.models) {
+                  chatModels = Array.from(window.Store.Chat.models);
+                } else if (window.Store.Chat._models) {
+                  chatModels = Array.from(window.Store.Chat._models);
+                }
+              }
+            } catch (e) {}
+          }
 
-        // Return mapped serializable JSON objects
-        return chatModels.map(c => {
-          const serializedId = (c.id && (c.id._serialized || (typeof c.id === 'string' ? c.id : ''))) || '';
-          const isGroupChat = Boolean(c.isGroup || (c.id && c.id.server === 'g.us') || serializedId.endsWith('@g.us'));
+          if (!chatModels) chatModels = [];
 
-          return {
-            groupJid: serializedId,
-            isGroup: isGroupChat,
-            name: c.formattedTitle || c.name || c.title || 'Unnamed Group'
-          };
+          return chatModels.map(c => {
+            const serializedId = (c.id && (c.id._serialized || (typeof c.id === 'string' ? c.id : ''))) || '';
+            const isGroupChat = Boolean(c.isGroup || (c.id && c.id.server === 'g.us') || serializedId.endsWith('@g.us'));
+
+            return {
+              groupJid: serializedId,
+              isGroup: isGroupChat,
+              name: c.formattedTitle || c.name || c.title || 'Unnamed Group'
+            };
+          });
         });
+      }
+
+      const groupChats = (chats || []).filter(c => Boolean(c.isGroup || (c.id && c.id.server === 'g.us') || (c.id && c.id._serialized && c.id._serialized.endsWith('@g.us')) || (c.groupJid && c.groupJid.endsWith('@g.us'))));
+
+      if (groupChats.length === 0) {
+        console.log('⚠️ No group chats found on this WhatsApp account.');
+        await client.destroy();
+        process.exit(0);
+      }
+
+      console.log(`\n📋 Found ${groupChats.length} group chats:\n`);
+      groupChats.forEach((group, index) => {
+        const gName = group.name || group.formattedTitle || 'Unnamed Group';
+        console.log(` [${index + 1}] ${gName}`);
       });
-    }
 
-    const groupChats = (chats || []).filter(c => Boolean(c.isGroup || (c.id && c.id.server === 'g.us') || (c.id && c.id._serialized && c.id._serialized.endsWith('@g.us')) || (c.groupJid && c.groupJid.endsWith('@g.us'))));
+      console.log(` [A] Export ALL groups`);
+      console.log(` [Q] Quit\n`);
 
-    if (groupChats.length === 0) {
-      console.log('⚠️ No group chats found on this WhatsApp account.');
-      await client.destroy();
+      let choice = await askQuestion('👉 Enter group option number to export (e.g. 1), "A" for All, or press Enter for [1]: ');
+
+      if (!choice) choice = '1';
+
+      if (choice.toUpperCase() === 'Q') {
+        console.log('Exiting...');
+      } else if (choice.toUpperCase() === 'A') {
+        console.log(`\n🚀 Exporting all ${groupChats.length} groups...`);
+        for (const group of groupChats) {
+          await exportGroupContacts(group);
+        }
+        console.log('\n🎉 All group exports complete!');
+      } else {
+        const selectedIndex = parseInt(choice, 10) - 1;
+        if (!isNaN(selectedIndex) && selectedIndex >= 0 && selectedIndex < groupChats.length) {
+          const targetGroup = groupChats[selectedIndex];
+          await exportGroupContacts(targetGroup);
+        } else {
+          console.log('❌ Invalid selection. Defaulting to first group [1]...');
+          await exportGroupContacts(groupChats[0]);
+        }
+      }
+
+    } catch (error) {
+      console.error('❌ Error extracting group contacts:', error);
+    } finally {
+      console.log('\nClosing WhatsApp session...');
+      try {
+        if (client && client.pupBrowser) {
+          await client.pupBrowser.close().catch(() => {});
+        }
+        if (client) {
+          await client.destroy().catch(() => {});
+        }
+      } catch(e) {}
       process.exit(0);
     }
+  });
 
-    console.log(`\n📋 Found ${groupChats.length} group chats:\n`);
-    groupChats.forEach((group, index) => {
-      const gName = group.name || group.formattedTitle || 'Unnamed Group';
-      console.log(` [${index + 1}] ${gName}`);
-    });
+  client.on('auth_failure', msg => {
+    console.error('❌ Authentication failed:', msg);
+  });
 
-    console.log(` [A] Export ALL groups`);
-    console.log(` [Q] Quit\n`);
-
-    let choice = await askQuestion('👉 Enter group option number to export (e.g. 1), "A" for All, or press Enter for [1]: ');
-
-    if (!choice) choice = '1';
-
-    if (choice.toUpperCase() === 'Q') {
-      console.log('Exiting...');
-    } else if (choice.toUpperCase() === 'A') {
-      console.log(`\n🚀 Exporting all ${groupChats.length} groups...`);
-      for (const group of groupChats) {
-        await exportGroupContacts(group);
-      }
-      console.log('\n🎉 All group exports complete!');
-    } else {
-      const selectedIndex = parseInt(choice, 10) - 1;
-      if (!isNaN(selectedIndex) && selectedIndex >= 0 && selectedIndex < groupChats.length) {
-        const targetGroup = groupChats[selectedIndex];
-        await exportGroupContacts(targetGroup);
-      } else {
-        console.log('❌ Invalid selection. Defaulting to first group [1]...');
-        await exportGroupContacts(groupChats[0]);
-      }
-    }
-
-  } catch (error) {
-    console.error('❌ Error extracting group contacts:', error);
-  } finally {
-    console.log('\nClosing WhatsApp session...');
-    try {
-      if (client && client.pupBrowser) {
-        await client.pupBrowser.close().catch(() => {});
-      }
-      if (client) {
-        await client.destroy().catch(() => {});
-      }
-    } catch(e) {}
-    process.exit(0);
-  }
-});
-
-client.on('auth_failure', msg => {
-  console.error('❌ Authentication failed:', msg);
-});
-
-if (require.main === module) {
   client.initialize();
 }
 
