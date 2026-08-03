@@ -145,40 +145,65 @@ async function destroyWhatsAppSession(sessionId, targetClient) {
   }
 }
 
-async function fetchUserGroups(targetClient, maxRetries = 3) {
+async function getGroupsWithRetry(targetClient, maxAttempts = 5, intervalMs = 3000) {
   if (!targetClient) return [];
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      console.log(`[Groups Sync] Fetching chats (Attempt ${attempt}/${maxRetries})...`);
+      console.log(`[IndexedDB Sync] Fetching chats (Attempt ${attempt}/${maxAttempts})...`);
       const chats = await targetClient.getChats();
       const groupChats = (chats || []).filter(c => c.isGroup);
 
-      if (groupChats.length > 0 || attempt === maxRetries) {
-        console.log(`[Groups Sync] Found ${groupChats.length} groups.`);
-        return groupChats.map(g => {
-          const mCount = g.participants ? g.participants.length : (g.groupMetadata ? (g.groupMetadata.participants ? g.groupMetadata.participants.length : 0) : 0);
+      if (groupChats.length > 0) {
+        console.log(`[IndexedDB Sync] Success! Found ${groupChats.length} group chats on attempt ${attempt}.`);
+        return groupChats.map(c => {
+          const mCount = c.participants ? c.participants.length : (c.groupMetadata ? (c.groupMetadata.participants ? c.groupMetadata.participants.length : 0) : 0);
           return {
-            id: g.id._serialized,
-            groupJid: g.id._serialized,
-            name: g.name || g.formattedTitle || 'Unnamed Group',
+            id: c.id._serialized,
+            groupJid: c.id._serialized,
+            name: c.name || c.formattedTitle || 'Unnamed Group',
             memberCount: mCount,
             count: mCount
           };
         });
       }
     } catch (err) {
-      console.error(`[Groups Sync Error] Attempt ${attempt}:`, err.message);
+      console.error(`[IndexedDB Sync Error] Attempt ${attempt}:`, err.message);
     }
-    if (attempt < maxRetries) {
-      console.log(`[Groups Sync] Retrying in 3 seconds...`);
-      await new Promise(resolve => setTimeout(resolve, 3000));
+
+    if (attempt < maxAttempts) {
+      console.log(`[IndexedDB Sync] No groups in store yet. Retrying in ${intervalMs}ms...`);
+      await new Promise(resolve => setTimeout(resolve, intervalMs));
     }
   }
-  return [];
+
+  // Fallback query if loop exhausted
+  try {
+    console.log('[IndexedDB Sync] Exhausted retries. Performing final fallback query...');
+    const finalChats = await targetClient.getChats();
+    const finalGroups = (finalChats || []).filter(c => c.isGroup);
+    return finalGroups.map(c => {
+      const mCount = c.participants ? c.participants.length : (c.groupMetadata ? (c.groupMetadata.participants ? c.groupMetadata.participants.length : 0) : 0);
+      return {
+        id: c.id._serialized,
+        groupJid: c.id._serialized,
+        name: c.name || c.formattedTitle || 'Unnamed Group',
+        memberCount: mCount,
+        count: mCount
+      };
+    });
+  } catch (err) {
+    console.error('[IndexedDB Sync Final Fallback Error]:', err.message);
+    return [];
+  }
+}
+
+async function fetchUserGroups(targetClient, maxRetries = 5) {
+  return getGroupsWithRetry(targetClient, maxRetries, 3000);
 }
 
 async function getGroupListForClient(targetClient) {
-  return fetchUserGroups(targetClient, 3);
+  return getGroupsWithRetry(targetClient, 5, 3000);
 }
 
 async function exportGroupContactsForClient(targetClient, targetGroup) {
@@ -837,5 +862,6 @@ module.exports = {
   destroyWhatsAppSession,
   getGroupListForClient,
   fetchUserGroups,
+  getGroupsWithRetry,
   exportGroupContactsForClient
 };

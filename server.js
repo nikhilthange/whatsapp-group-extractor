@@ -11,6 +11,7 @@ const {
   destroyWhatsAppSession,
   getGroupListForClient,
   fetchUserGroups,
+  getGroupsWithRetry,
   exportGroupContactsForClient
 } = require('./extractContacts');
 
@@ -133,8 +134,8 @@ io.on('connection', (socket) => {
       }
 
       try {
-        sessionObj.groups = await fetchUserGroups(client, 3);
-        console.log(`📋 [${sessionId}] Found ${sessionObj.groups.length} group chats!`);
+        sessionObj.groups = await getGroupsWithRetry(client, 5, 3000);
+        console.log(`📋 [${sessionId}] IndexedDB Sync complete! Found ${sessionObj.groups.length} group chats.`);
         if (sessionObj.socket) {
           sessionObj.socket.emit('whatsapp_groups', { groups: sessionObj.groups });
           sessionObj.socket.emit('groups', sessionObj.groups);
@@ -234,8 +235,8 @@ app.get('/api/groups', async (req, res) => {
     return res.status(401).json({ error: 'WhatsApp is not authenticated. Scan QR code first.' });
   }
   try {
-    session.groups = await fetchUserGroups(session.client, 3);
-    res.json({ groups: session.groups });
+    session.groups = await getGroupsWithRetry(session.client, 3, 2000);
+    res.json({ success: true, groups: session.groups });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
