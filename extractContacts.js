@@ -280,7 +280,7 @@ async function exportGroupContactsForClient(targetClient, targetGroup) {
     // Attempt B: In-Browser Page Evaluation querying WAWebCollections, Store.Chat, and Store.GroupMetadata
     if ((!participantsRaw || participantsRaw.length === 0) && targetClient.pupPage) {
       try {
-        const evalResult = await targetClient.pupPage.evaluate((gJid) => {
+        const evalResult = await targetClient.pupPage.evaluate(async (gJid) => {
           let title = 'WhatsApp Group';
           let parts = [];
 
@@ -340,7 +340,17 @@ async function exportGroupContactsForClient(targetClient, targetGroup) {
             } catch(e) {}
           }
 
-          // Helper 3: Search all Chat models by partial or numeric JID matching
+          // Helper 3: Active Server Fetch via Store.GroupMetadata.find() if still empty
+          if ((!parts || parts.length === 0) && window.Store && window.Store.GroupMetadata && typeof window.Store.GroupMetadata.find === 'function') {
+            try {
+              const fetchedMeta = await window.Store.GroupMetadata.find(gJid);
+              if (fetchedMeta && fetchedMeta.participants) {
+                parts = Array.from(fetchedMeta.participants);
+              }
+            } catch(e) {}
+          }
+
+          // Helper 4: Search all Chat models by partial or numeric JID matching
           if (!parts || parts.length === 0) {
             try {
               const cleanNum = gJid.replace(/[^0-9]/g, '');
