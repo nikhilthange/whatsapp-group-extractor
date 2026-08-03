@@ -145,22 +145,40 @@ async function destroyWhatsAppSession(sessionId, targetClient) {
   }
 }
 
-async function getGroupListForClient(targetClient) {
+async function fetchUserGroups(targetClient, maxRetries = 3) {
   if (!targetClient) return [];
-  try {
-    const chats = await targetClient.getChats();
-    const groupChats = (chats || []).filter(c => c.isGroup);
-    return groupChats.map(g => ({
-      id: g.id._serialized,
-      groupJid: g.id._serialized,
-      name: g.name || g.formattedTitle || 'Unnamed Group',
-      memberCount: g.participants ? g.participants.length : 0,
-      count: g.participants ? g.participants.length : 0
-    }));
-  } catch(e) {
-    console.warn('⚠️ getGroupListForClient error:', e.message);
-    return [];
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      console.log(`[Groups Sync] Fetching chats (Attempt ${attempt}/${maxRetries})...`);
+      const chats = await targetClient.getChats();
+      const groupChats = (chats || []).filter(c => c.isGroup);
+
+      if (groupChats.length > 0 || attempt === maxRetries) {
+        console.log(`[Groups Sync] Found ${groupChats.length} groups.`);
+        return groupChats.map(g => {
+          const mCount = g.participants ? g.participants.length : (g.groupMetadata ? (g.groupMetadata.participants ? g.groupMetadata.participants.length : 0) : 0);
+          return {
+            id: g.id._serialized,
+            groupJid: g.id._serialized,
+            name: g.name || g.formattedTitle || 'Unnamed Group',
+            memberCount: mCount,
+            count: mCount
+          };
+        });
+      }
+    } catch (err) {
+      console.error(`[Groups Sync Error] Attempt ${attempt}:`, err.message);
+    }
+    if (attempt < maxRetries) {
+      console.log(`[Groups Sync] Retrying in 3 seconds...`);
+      await new Promise(resolve => setTimeout(resolve, 3000));
+    }
   }
+  return [];
+}
+
+async function getGroupListForClient(targetClient) {
+  return fetchUserGroups(targetClient, 3);
 }
 
 async function exportGroupContactsForClient(targetClient, targetGroup) {
@@ -818,5 +836,6 @@ module.exports = {
   createWhatsAppClient,
   destroyWhatsAppSession,
   getGroupListForClient,
+  fetchUserGroups,
   exportGroupContactsForClient
 };
