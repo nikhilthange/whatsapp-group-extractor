@@ -151,98 +151,79 @@ async function destroyWhatsAppSession(sessionId, targetClient) {
   }
 }
 
-async function getGroupsWithRetry(targetClient, maxAttempts = 5, intervalMs = 3000) {
+async function getGroupsWithRetry(targetClient, maxAttempts = 6, intervalMs = 2500) {
   if (!targetClient) return [];
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      console.log(`[IndexedDB Sync] Fetching chats (Attempt ${attempt}/${maxAttempts})...`);
-      let chats = [];
-      try {
-        chats = await targetClient.getChats();
-      } catch (err) {
-        console.log('client.getChats failed, falling back to puppeteer page evaluation...');
-      }
+      console.log(`[Groups Sync] Fetching chats (Attempt ${attempt}/${maxAttempts})...`);
+      // Attempt 1: Standard API call
+      let chats = await targetClient.getChats().catch(() => []);
 
+      // Attempt 2: Direct In-Browser Store Evaluation Fallback
       if ((!chats || chats.length === 0) && targetClient.pupPage) {
-        try {
-          const evaluatedChats = await targetClient.pupPage.evaluate(() => {
-            let chatModels = [];
+        chats = await targetClient.pupPage.evaluate(() => {
+          let models = [];
+          try {
+            if (window.require) {
+              const collections = window.require('WAWebCollections');
+              if (collections && collections.Chat && typeof collections.Chat.getModelsArray === 'function') {
+                models = collections.Chat.getModelsArray();
+              }
+            }
+          } catch (e) {}
+
+          if (!models || models.length === 0) {
             try {
-              if (window.require) {
-                const collections = window.require('WAWebCollections');
-                if (collections && collections.Chat && typeof collections.Chat.getModelsArray === 'function') {
-                  chatModels = collections.Chat.getModelsArray();
-                }
+              if (window.Store && window.Store.Chat) {
+                models = typeof window.Store.Chat.getModelsArray === 'function'
+                  ? window.Store.Chat.getModelsArray()
+                  : Array.from(window.Store.Chat.models || window.Store.Chat._models || []);
               }
             } catch (e) {}
-
-            if (!chatModels || chatModels.length === 0) {
-              try {
-                if (window.Store && window.Store.Chat) {
-                  if (typeof window.Store.Chat.getModelsArray === 'function') {
-                    chatModels = window.Store.Chat.getModelsArray();
-                  } else if (window.Store.Chat.models) {
-                    chatModels = Array.from(window.Store.Chat.models);
-                  } else if (window.Store.Chat._models) {
-                    chatModels = Array.from(window.Store.Chat._models);
-                  }
-                }
-              } catch (e) {}
-            }
-
-            if (!chatModels) chatModels = [];
-
-            return chatModels.map(c => {
-              const serializedId = (c.id && (c.id._serialized || (typeof c.id === 'string' ? c.id : ''))) || '';
-              const isGroupChat = Boolean(c.isGroup || (c.id && c.id.server === 'g.us') || (c.id && c.id._serialized && c.id._serialized.endsWith('@g.us')) || serializedId.endsWith('@g.us'));
-              const pCount = c.groupMetadata ? (c.groupMetadata.participants ? c.groupMetadata.participants.length : 0) : (c.participants ? c.participants.length : 0);
-
-              return {
-                id: { _serialized: serializedId },
-                _serialized: serializedId,
-                name: c.formattedTitle || c.name || c.title || 'WhatsApp Group',
-                isGroup: isGroupChat,
-                memberCount: pCount,
-                participants: (c.groupMetadata && c.groupMetadata.participants) ? c.groupMetadata.participants : []
-              };
-            });
-          });
-
-          if (evaluatedChats && evaluatedChats.length > 0) {
-            chats = evaluatedChats;
           }
-        } catch (e) {
-          console.error('Puppeteer page chat eval failed:', e.message);
-        }
+
+          return (models || []).map(c => {
+            const rawId = c.id ? (typeof c.id === 'string' ? c.id : (c.id._serialized || c.id.$1 || c.id.user || '')) : '';
+            const isGroup = Boolean(c.isGroup || (c.id && c.id.server === 'g.us') || (rawId && rawId.includes('@g.us')));
+            return {
+              id: rawId,
+              isGroup: isGroup,
+              name: c.formattedTitle || c.name || c.title || 'WhatsApp Group',
+              participantsCount: c.groupMetadata && c.groupMetadata.participants ? c.groupMetadata.participants.length : (c.participants ? c.participants.length : 0)
+            };
+          });
+        }).catch(() => []);
       }
 
-      const groupChats = (chats || []).filter(c => Boolean(c.isGroup || (c.id && (c.id.server === 'g.us' || (c.id._serialized && c.id._serialized.endsWith('@g.us')))) || (c._serialized && c._serialized.endsWith('@g.us'))));
+      // Filter for group chats
+      const groupChats = (chats || []).filter(c => {
+        const jid = c.id ? (typeof c.id === 'string' ? c.id : (c.id._serialized || c._serialized || '')) : '';
+        return Boolean(c.isGroup || (jid && (jid.endsWith('@g.us') || jid.includes('@g.us'))));
+      });
 
       if (groupChats.length > 0) {
-        console.log(`[IndexedDB Sync] Success! Found ${groupChats.length} group chats on attempt ${attempt}.`);
+        console.log(`[Groups Sync] Success! Found ${groupChats.length} group chats on attempt ${attempt}.`);
         return groupChats.map(c => {
-          const jid = (c.id && c.id._serialized) ? c.id._serialized : (c._serialized || (typeof c.id === 'string' ? c.id : ''));
-          const mCount = c.memberCount !== undefined ? c.memberCount : (c.participants ? c.participants.length : (c.groupMetadata ? (c.groupMetadata.participants ? c.groupMetadata.participants.length : 0) : 0));
+          const jid = c.id ? (typeof c.id === 'string' ? c.id : (c.id._serialized || c._serialized || '')) : '';
+          const pCount = c.participantsCount !== undefined ? c.participantsCount : (c.participants ? c.participants.length : (c.groupMetadata ? (c.groupMetadata.participants ? c.groupMetadata.participants.length : 0) : 0));
           return {
             id: jid,
             groupJid: jid,
             name: c.name || c.formattedTitle || 'WhatsApp Group',
-            memberCount: mCount,
-            count: mCount
+            memberCount: pCount,
+            count: pCount
           };
         });
       }
     } catch (err) {
-      console.error(`[IndexedDB Sync Error] Attempt ${attempt}:`, err.message);
+      console.error(`Attempt ${attempt} group fetch error:`, err.message);
     }
 
     if (attempt < maxAttempts) {
-      console.log(`[IndexedDB Sync] No groups in store yet. Retrying in ${intervalMs}ms...`);
       await new Promise(resolve => setTimeout(resolve, intervalMs));
     }
   }
-
   return [];
 }
 
