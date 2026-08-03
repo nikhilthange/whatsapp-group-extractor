@@ -268,15 +268,40 @@ app.post('/api/reset', async (req, res) => {
 
 // 1. GET /api/groups Endpoint
 app.get('/api/groups', async (req, res) => {
-  const session = getSession(req);
-  if (!session || !session.client || session.statusState !== 'connected') {
-    return res.status(401).json({ error: 'WhatsApp is not authenticated. Scan QR code first.' });
+  const sessionId = req.headers['x-session-id'] || (req.query && req.query.sessionId) || (req.body && req.body.sessionId) || req.headers['x-socket-id'];
+
+  if (!sessionId) {
+    return res.status(400).json({ success: false, error: 'Session ID is required.' });
   }
+
+  if (!activeSessions.has(sessionId)) {
+    return res.status(404).json({ success: false, authenticated: false, message: 'Session not found. Please scan QR code.' });
+  }
+
+  const session = activeSessions.get(sessionId);
+  session.lastActiveTime = Date.now();
+
+  if (!session.client || session.statusState !== 'connected') {
+    return res.status(200).json({
+      success: true,
+      loading: true,
+      authenticated: session.statusState === 'authenticating',
+      status: session.statusState,
+      groups: []
+    });
+  }
+
   try {
     session.groups = await getGroupsWithRetry(session.client, 3, 2000);
-    res.json({ success: true, groups: session.groups });
+    res.status(200).json({
+      success: true,
+      loading: session.groups.length === 0,
+      authenticated: true,
+      status: 'connected',
+      groups: session.groups
+    });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 
