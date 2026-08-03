@@ -53,38 +53,20 @@ const puppeteerConfig = {
     '--disable-accelerated-2d-canvas',
     '--no-first-run',
     '--no-zygote',
+    '--single-process',
     '--disable-gpu',
     '--disable-extensions',
     '--disable-component-update',
-    '--no-default-browser-check',
-    '--disable-background-networking',
-    '--disable-background-timer-throttling',
-    '--disable-backgrounding-occluded-windows',
-    '--disable-breakpad',
-    '--disable-client-side-phishing-detection',
-    '--disable-default-apps',
-    '--disable-hang-monitor',
-    '--disable-ipc-flooding-protection',
-    '--disable-popup-blocking',
-    '--disable-prompt-on-repost',
-    '--disable-renderer-backgrounding',
-    '--disable-sync',
-    '--force-color-profile=srgb',
-    '--metrics-recording-only',
-    '--blink-settings=imagesEnabled=false',
-    '--disable-remote-fonts',
-    '--disable-speech-api',
-    '--disk-cache-size=1',
-    '--media-cache-size=1'
+    '--no-default-browser-check'
   ]
 };
 
-if (chromePath) {
-  puppeteerConfig.executablePath = chromePath;
+if (chromePath || process.env.PUPPETEER_EXECUTABLE_PATH) {
+  puppeteerConfig.executablePath = chromePath || process.env.PUPPETEER_EXECUTABLE_PATH;
 }
 
 try {
-  const sessionDir = path.join(__dirname, '.wwebjs_auth', 'session');
+  const sessionDir = path.join(__dirname, '.wwebjs_auth', 'session-whatsapp-studio');
   ['DevToolsActivePort', 'SingletonLock', 'SingletonCookie', 'SingletonSocket', 'lockfile'].forEach(f => {
     const p = path.join(sessionDir, f);
     if (fs.existsSync(p)) {
@@ -101,10 +83,10 @@ try {
 } catch(e) {}
 
 const client = new Client({
-  authStrategy: new LocalAuth({ dataPath: './.wwebjs_auth' }),
+  authStrategy: new LocalAuth({ clientId: 'whatsapp-studio', dataPath: './.wwebjs_auth' }),
   webVersionCache: {
     type: 'remote',
-    remotePath: 'https://raw.githubusercontent.com/wwebjs/wwjs-whatsapp-web/main/mod.html'
+    remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html'
   },
   puppeteer: puppeteerConfig
 });
