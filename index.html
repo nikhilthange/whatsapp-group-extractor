@@ -1166,6 +1166,10 @@
           opt.textContent = `${g.name}${memberText}`;
           select.appendChild(opt);
         });
+
+        if (fetchedGroupsList.length > 0 && select.options.length > 1) {
+          select.selectedIndex = 1;
+        }
       }
 
       onGroupSelectionChange();
@@ -1189,6 +1193,10 @@
 
     async function extractSelectedGroup() {
       const select = document.getElementById('groupSelect');
+      if (!select.value && select.options.length > 1) {
+        select.selectedIndex = 1;
+        onGroupSelectionChange();
+      }
       const jid = select.value;
       const selectedGroup = fetchedGroupsList.find(g => (g.id || g.groupJid) === jid);
       const name = selectedGroup ? selectedGroup.name : select.options[select.selectedIndex]?.text;
@@ -1224,6 +1232,10 @@
 
     async function exportSelectedGroupCSV() {
       const select = document.getElementById('groupSelect');
+      if (!select.value && select.options.length > 1) {
+        select.selectedIndex = 1;
+        onGroupSelectionChange();
+      }
       const jid = select.value;
       const selectedGroup = fetchedGroupsList.find(g => (g.id || g.groupJid) === jid);
       const name = selectedGroup ? selectedGroup.name : select.options[select.selectedIndex]?.text;
@@ -1273,6 +1285,10 @@
 
     async function exportSelectedGroupExcel() {
       const select = document.getElementById('groupSelect');
+      if (!select.value && select.options.length > 1) {
+        select.selectedIndex = 1;
+        onGroupSelectionChange();
+      }
       const jid = select.value;
       const selectedGroup = fetchedGroupsList.find(g => (g.id || g.groupJid) === jid);
       const name = selectedGroup ? selectedGroup.name : select.options[select.selectedIndex]?.text;

@@ -357,7 +357,28 @@ async function exportGroupContactsForClient(targetClient, targetGroup) {
               const allModels = Array.from((window.Store && window.Store.Chat && (window.Store.Chat.models || window.Store.Chat._models)) || []);
               for (const m of allModels) {
                 const mid = m.id ? (typeof m.id === 'string' ? m.id : (m.id._serialized || m.id.$1 || m.id.user || '')) : '';
-                if (mid.includes(cleanNum) || (m.formattedTitle && gJid.includes(m.formattedTitle))) {
+                if ((cleanNum && mid.includes(cleanNum)) || (m.formattedTitle && gJid.includes(m.formattedTitle))) {
+                  title = m.formattedTitle || m.name || title;
+                  if (m.groupMetadata && m.groupMetadata.participants) {
+                    parts = Array.from(m.groupMetadata.participants);
+                    break;
+                  } else if (m.participants) {
+                    parts = Array.from(m.participants);
+                    break;
+                  }
+                }
+              }
+            } catch(e) {}
+          }
+
+          // Helper 5: Search all Chat models by formatted title string matching (e.g. "college")
+          if (!parts || parts.length === 0) {
+            try {
+              const targetStr = String(gJid || '').toLowerCase().trim();
+              const allModels = Array.from((window.Store && window.Store.Chat && (window.Store.Chat.models || window.Store.Chat._models)) || []);
+              for (const m of allModels) {
+                const mTitle = String(m.formattedTitle || m.name || m.title || '').toLowerCase().trim();
+                if (mTitle && (mTitle === targetStr || mTitle.includes(targetStr) || targetStr.includes(mTitle))) {
                   title = m.formattedTitle || m.name || title;
                   if (m.groupMetadata && m.groupMetadata.participants) {
                     parts = Array.from(m.groupMetadata.participants);
