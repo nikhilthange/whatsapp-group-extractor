@@ -1,0 +1,32 @@
+{
+  "name": "wa-contact-extractor",
+  "version": "1.0.0",
+  "description": "Extract contacts from WhatsApp groups to CSV files using whatsapp-web.js",
+  "main": "extractContacts.js",
+  "scripts": {
+    "start": "node server.js",
+    "extract": "node extractContacts.js"
+  },
+  "keywords": [
+    "whatsapp",
+    "whatsapp-web.js",
+    "contact-extractor",
+    "csv",
+    "exporter"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "csv-writer": "^1.6.0",
+    "exceljs": "^4.4.0",
+    "express": "^5.2.1",
+    "inquirer": "^8.2.5",
+    "puppeteer": "^22.0.0",
+    "puppeteer-core": "^22.15.0",
+    "qrcode": "^1.5.4",
+    "qrcode-terminal": "^0.12.0",
+    "socket.io": "^4.8.3",
+    "whatsapp-web.js": "github:pedroslopez/whatsapp-web.js",
+    "xlsx": "^0.18.5"
+  }
+}

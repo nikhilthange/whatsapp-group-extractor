@@ -1,0 +1,17 @@
+# Node dependencies
+node_modules/
+
+# WhatsApp Web Authentication & Session Data
+.wwebjs_auth/
+.wwebjs_cache/
+
+# Generated Output & Export Files
+*.csv
+*.xlsx
+~$*.xlsx
+*.vcf
+
+# Environment & Logs
+.env
+*.log
+.DS_Store

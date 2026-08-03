@@ -1,0 +1,1388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WhatsApp Contact Studio — High-End SaaS Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="/socket.io/socket.io.js"></script>
+  <style>
+    :root {
+      --bg-dark: #070913;
+      --card-glass: rgba(255, 255, 255, 0.03);
+      --card-border: rgba(255, 255, 255, 0.1);
+      --accent-emerald: #10b981;
+      --accent-emerald-glow: #00f59b;
+      --accent-cyan: #38bdf8;
+      --accent-cyan-glow: #00e5ff;
+      --accent-violet: #8b5cf6;
+      --accent-purple: #a855f7;
+      --text-primary: #f8fafc;
+      --text-secondary: #94a3b8;
+      --text-muted: #64748b;
+      --glass-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
+      --glow-shadow: 0 0 25px rgba(16, 185, 129, 0.2);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: 'Outfit', 'Plus Jakarta Sans', -apple-system, sans-serif;
+    }
+
+    body {
+      background: var(--bg-dark);
+      color: var(--text-primary);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding-top: 5.5rem;
+      padding-bottom: 3rem;
+      padding-left: 1.5rem;
+      padding-right: 1.5rem;
+      position: relative;
+      overflow-x: hidden;
+      background-image: 
+        radial-gradient(circle at 10% 15%, rgba(16, 185, 129, 0.12) 0%, transparent 40%),
+        radial-gradient(circle at 90% 80%, rgba(56, 189, 248, 0.12) 0%, transparent 40%),
+        radial-gradient(circle at 50% 50%, rgba(139, 92, 246, 0.08) 0%, transparent 60%);
+    }
+
+    /* Floating Background Orbs */
+    body::before {
+      content: '';
+      position: absolute;
+      top: -80px;
+      left: 25%;
+      width: 450px;
+      height: 450px;
+      background: radial-gradient(circle, rgba(16, 185, 129, 0.22) 0%, transparent 70%);
+      filter: blur(90px);
+      z-index: 0;
+      pointer-events: none;
+      animation: floatOrb 12s ease-in-out infinite alternate;
+    }
+
+    body::after {
+      content: '';
+      position: absolute;
+      bottom: -80px;
+      right: 20%;
+      width: 400px;
+      height: 400px;
+      background: radial-gradient(circle, rgba(168, 85, 247, 0.18) 0%, transparent 70%);
+      filter: blur(90px);
+      z-index: 0;
+      pointer-events: none;
+      animation: floatOrb 15s ease-in-out infinite alternate-reverse;
+    }
+
+    @keyframes floatOrb {
+      0% { transform: translate(0, 0) scale(1); }
+      100% { transform: translate(40px, 30px) scale(1.1); }
+    }
+
+    /* Fixed Top Navigation Bar */
+    .navbar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 4.25rem;
+      background: rgba(7, 9, 19, 0.8);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      z-index: 50;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 2rem;
+    }
+
+    .nav-brand {
+      display: flex;
+      align-items: center;
+      gap: 0.85rem;
+      text-decoration: none;
+    }
+
+    .brand-logo-icon {
+      width: 36px;
+      height: 36px;
+      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+      border-radius: 0.65rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 0 15px rgba(16, 185, 129, 0.4);
+    }
+
+    .brand-logo-icon svg {
+      width: 20px;
+      height: 20px;
+      fill: #ffffff;
+    }
+
+    .nav-title {
+      font-size: 1.25rem;
+      font-weight: 800;
+      letter-spacing: -0.01em;
+      background: linear-gradient(135deg, #ffffff 0%, #cbd5e1 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .nav-pro-tag {
+      font-size: 0.68rem;
+      font-weight: 700;
+      background: rgba(16, 185, 129, 0.15);
+      border: 1px solid rgba(16, 185, 129, 0.4);
+      color: var(--accent-emerald-glow);
+      padding: 0.15rem 0.5rem;
+      border-radius: 0.4rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .nav-actions {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: rgba(15, 23, 42, 0.8);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: var(--text-secondary);
+      padding: 0.4rem 0.95rem;
+      border-radius: 2rem;
+      font-size: 0.82rem;
+      font-weight: 600;
+      backdrop-filter: blur(10px);
+      transition: all 0.3s ease;
+    }
+
+    .status-pill .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent-cyan);
+      box-shadow: 0 0 8px var(--accent-cyan);
+      animation: pulseDot 2s infinite;
+    }
+
+    @keyframes pulseDot {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.3); opacity: 0.6; }
+    }
+
+    .btn-reset {
+      background: rgba(239, 68, 68, 0.12);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      color: #f87171;
+      padding: 0.4rem 0.9rem;
+      border-radius: 0.6rem;
+      font-size: 0.82rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.25s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .btn-reset:hover {
+      background: rgba(239, 68, 68, 0.25);
+      border-color: #f87171;
+      color: #ffffff;
+      transform: translateY(-1px);
+    }
+
+    /* Container Layout */
+    .container {
+      width: 100%;
+      max-width: 1140px;
+      display: flex;
+      flex-direction: column;
+      gap: 1.75rem;
+      z-index: 1;
+      position: relative;
+    }
+
+    /* Glassmorphism Card System */
+    .glass-card {
+      background: var(--card-glass);
+      border: 1px solid var(--card-border);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-radius: 1.25rem;
+      box-shadow: var(--glass-shadow);
+      padding: 1.75rem;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .glass-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.18) 50%, transparent 100%);
+    }
+
+    /* Main Control Card */
+    .main-control-card {
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+    }
+
+    .control-card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+
+    .control-card-title {
+      font-size: 1.2rem;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      color: var(--text-primary);
+    }
+
+    .control-card-layout {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 1.25rem;
+      align-items: center;
+    }
+
+    @media (max-width: 900px) {
+      .control-card-layout {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .dropdown-wrapper {
+      position: relative;
+      width: 100%;
+    }
+
+    .custom-select {
+      width: 100%;
+      background: rgba(15, 23, 42, 0.9);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: var(--text-primary);
+      padding: 0.9rem 1.25rem;
+      border-radius: 0.85rem;
+      font-size: 0.95rem;
+      font-weight: 500;
+      outline: none;
+      transition: all 0.25s ease;
+      cursor: pointer;
+      appearance: none;
+      -webkit-appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2394a3b8'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 1.25rem center;
+      background-size: 1.2rem;
+      padding-right: 3rem;
+    }
+
+    .custom-select:focus, .custom-select:hover {
+      border-color: var(--accent-emerald-glow);
+      box-shadow: 0 0 20px rgba(16, 185, 129, 0.2);
+    }
+
+    .action-button-group {
+      display: flex;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    /* Buttons & Micro-Interactions */
+    .btn {
+      padding: 0.85rem 1.4rem;
+      border-radius: 0.85rem;
+      font-size: 0.92rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.55rem;
+      text-decoration: none;
+      border: 1px solid transparent;
+      white-space: nowrap;
+    }
+
+    .btn:hover {
+      transform: translateY(-2px) scale(1.01);
+    }
+
+    .btn-emerald-glow {
+      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+      color: #ffffff;
+      font-weight: 700;
+      box-shadow: 0 10px 25px rgba(16, 185, 129, 0.35);
+      border: none;
+    }
+
+    .btn-emerald-glow:hover {
+      background: linear-gradient(135deg, #059669 0%, #047857 100%);
+      box-shadow: 0 14px 30px rgba(16, 185, 129, 0.5);
+    }
+
+    .btn-purple-grad {
+      background: linear-gradient(135deg, #a855f7 0%, #7c3aed 100%);
+      color: #ffffff;
+      font-weight: 700;
+      box-shadow: 0 10px 25px rgba(168, 85, 247, 0.35);
+      border: none;
+    }
+
+    .btn-purple-grad:hover {
+      background: linear-gradient(135deg, #9333ea 0%, #6d28d9 100%);
+      box-shadow: 0 14px 30px rgba(168, 85, 247, 0.5);
+    }
+
+    .btn-glass-alt {
+      background: rgba(56, 189, 248, 0.12);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      color: var(--accent-cyan);
+    }
+
+    .btn-glass-alt:hover {
+      background: rgba(56, 189, 248, 0.25);
+      border-color: var(--accent-cyan-glow);
+      color: #ffffff;
+      box-shadow: 0 8px 25px rgba(56, 189, 248, 0.25);
+    }
+
+    .btn-active {
+      background: var(--accent-cyan) !important;
+      color: #070913 !important;
+      font-weight: 700 !important;
+      border-color: var(--accent-cyan-glow) !important;
+    }
+
+    /* Metric Cards Grid */
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 1.25rem;
+    }
+
+    .metric-card {
+      background: var(--card-glass);
+      border: 1px solid var(--card-border);
+      backdrop-filter: blur(12px);
+      border-radius: 1.15rem;
+      padding: 1.5rem;
+      display: flex;
+      align-items: center;
+      gap: 1.25rem;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow: var(--glass-shadow);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .metric-card:hover {
+      transform: translateY(-3px);
+      border-color: rgba(255, 255, 255, 0.2);
+    }
+
+    .metric-icon-box {
+      width: 52px;
+      height: 52px;
+      border-radius: 0.9rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .metric-icon-box svg {
+      width: 26px;
+      height: 26px;
+    }
+
+    .icon-emerald {
+      background: linear-gradient(135deg, rgba(16, 185, 129, 0.2) 0%, rgba(16, 185, 129, 0.05) 100%);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+    .icon-emerald svg { fill: var(--accent-emerald-glow); }
+
+    .icon-amber {
+      background: linear-gradient(135deg, rgba(245, 158, 11, 0.2) 0%, rgba(245, 158, 11, 0.05) 100%);
+      border: 1px solid rgba(245, 158, 11, 0.3);
+    }
+    .icon-amber svg { fill: #fbbf24; }
+
+    .icon-indigo {
+      background: linear-gradient(135deg, rgba(139, 92, 246, 0.2) 0%, rgba(139, 92, 246, 0.05) 100%);
+      border: 1px solid rgba(139, 92, 246, 0.3);
+    }
+    .icon-indigo svg { fill: #c084fc; }
+
+    .metric-info {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .metric-val {
+      font-size: 1.85rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      color: var(--text-primary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      line-height: 1.2;
+    }
+
+    .metric-lbl {
+      color: var(--text-secondary);
+      font-size: 0.82rem;
+      font-weight: 600;
+      margin-top: 0.25rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    /* Action Toolbar & Search */
+    .toolbar-panel {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .search-input-box {
+      flex: 1;
+      min-width: 280px;
+      position: relative;
+    }
+
+    .search-input-box input {
+      width: 100%;
+      background: rgba(15, 23, 42, 0.8);
+      border: 1px solid var(--card-border);
+      border-radius: 0.85rem;
+      padding: 0.75rem 1.25rem 0.75rem 2.85rem;
+      color: var(--text-primary);
+      font-size: 0.95rem;
+      outline: none;
+      transition: all 0.25s ease;
+    }
+
+    .search-input-box input:focus {
+      border-color: var(--accent-cyan);
+      box-shadow: 0 0 15px rgba(56, 189, 248, 0.2);
+    }
+
+    .search-icon-svg {
+      position: absolute;
+      left: 1rem;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 18px;
+      height: 18px;
+      fill: var(--text-muted);
+    }
+
+    .filter-buttons {
+      display: flex;
+      gap: 0.5rem;
+    }
+
+    /* Table Container & Custom Table Styling */
+    .table-card {
+      padding: 0;
+      overflow: hidden;
+    }
+
+    .table-responsive {
+      overflow-x: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+    }
+
+    th {
+      background: rgba(7, 9, 19, 0.95);
+      color: var(--text-muted);
+      font-size: 0.78rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      padding: 1.1rem 1.5rem;
+      border-bottom: 1px solid var(--card-border);
+    }
+
+    td {
+      padding: 1.1rem 1.5rem;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+      font-size: 0.95rem;
+      vertical-align: middle;
+    }
+
+    tr {
+      transition: background 0.2s ease;
+    }
+
+    tr:hover {
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    /* Role Badges */
+    .badge-admin {
+      background: rgba(16, 185, 129, 0.15);
+      border: 1px solid rgba(16, 185, 129, 0.4);
+      color: var(--accent-emerald-glow);
+      padding: 0.3rem 0.75rem;
+      border-radius: 2rem;
+      font-size: 0.75rem;
+      font-weight: 700;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      box-shadow: 0 0 10px rgba(16, 185, 129, 0.15);
+    }
+
+    .badge-member {
+      background: rgba(148, 163, 184, 0.1);
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      color: var(--text-secondary);
+      padding: 0.3rem 0.75rem;
+      border-radius: 2rem;
+      font-size: 0.75rem;
+      font-weight: 500;
+    }
+
+    /* Drop Zone File Vault */
+    .drop-zone {
+      border: 2px dashed rgba(56, 189, 248, 0.3);
+      padding: 2.25rem 2rem;
+      text-align: center;
+      cursor: pointer;
+      border-radius: 1.25rem;
+      background: rgba(15, 23, 42, 0.4);
+      transition: all 0.3s ease;
+      position: relative;
+    }
+
+    .drop-zone:hover, .drop-zone.dragover {
+      border-color: var(--accent-emerald-glow);
+      background: rgba(16, 185, 129, 0.08);
+      transform: translateY(-2px);
+      box-shadow: var(--glow-shadow);
+    }
+
+    .drop-zone input[type="file"] {
+      position: absolute;
+      top: 0; left: 0; width: 100%; height: 100%;
+      opacity: 0;
+      cursor: pointer;
+    }
+
+    .icon-glow {
+      font-size: 2.75rem;
+      margin-bottom: 0.75rem;
+      display: inline-block;
+      filter: drop-shadow(0 0 15px rgba(56, 189, 248, 0.4));
+    }
+
+    /* Toast Notification */
+    .toast-notification {
+      position: fixed;
+      bottom: 2rem;
+      right: 2rem;
+      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+      color: #ffffff;
+      padding: 0.85rem 1.75rem;
+      border-radius: 0.85rem;
+      font-weight: 600;
+      box-shadow: 0 15px 35px rgba(0, 0, 0, 0.5);
+      opacity: 0;
+      transform: translateY(20px);
+      transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+      pointer-events: none;
+      z-index: 100;
+    }
+
+    .toast-notification.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Fixed Top Navigation Header -->
+  <nav class="navbar">
+    <a href="#" class="nav-brand">
+      <div class="brand-logo-icon">
+        <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12c0 1.82.49 3.53 1.35 5L2 22l5.1-1.31C8.54 21.52 10.22 22 12 22c5.52 0 10-4.48 10-10S17.52 2 12 2zm-1.02 14.5v-5h2.04v5h-2.04zm.02-7.5c-.69 0-1.25-.56-1.25-1.25s.56-1.25 1.25-1.25 1.25.56 1.25 1.25-.56 1.25-1.25 1.25z"/></svg>
+      </div>
+      <div class="nav-title">
+        WhatsApp Contact Studio <span class="nav-pro-tag">PRO v2.0</span>
+      </div>
+    </a>
+
+    <div class="nav-actions">
+      <div class="status-pill" id="headerStatusBadge">
+        <span class="dot" id="headerStatusDot"></span>
+        <span id="headerStatusText">Connecting...</span>
+      </div>
+      <button class="btn-reset" onclick="resetSession()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+        Reset Session
+      </button>
+    </div>
+  </nav>
+
+  <div class="container">
+    
+    <!-- Main Control Card -->
+    <div class="glass-card main-control-card" id="liveStudioPanel">
+      <div id="loadingBox" style="display:block; text-align:center; padding:1.5rem;">
+        <h3 style="color:var(--accent-cyan); font-size:1.3rem;">⏳ Connecting to WhatsApp Studio Backend...</h3>
+        <p style="color:var(--text-secondary); font-size:0.92rem; margin-top:0.4rem;">Initializing session and fetching active group chats. Please wait...</p>
+      </div>
+
+      <div id="qrBox" style="display:none; text-align:center; padding:1rem;">
+        <h3 style="color:var(--accent-cyan); font-size:1.3rem;">📱 Scan QR Code to Link WhatsApp Studio</h3>
+        <p style="color:var(--text-secondary); font-size:0.92rem; margin-top:0.4rem; margin-bottom:1rem;">Open WhatsApp on phone $\rightarrow$ Settings $\rightarrow$ Linked Devices $\rightarrow$ Link a Device</p>
+        <div class="qr-container" style="background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.12); border-radius:1.25rem; padding:1.25rem; display:inline-block; box-shadow:0 15px 35px rgba(0,0,0,0.4);">
+          <img id="qrImg" src="" alt="WhatsApp QR Code" style="width:220px; height:220px; border-radius:0.85rem; background:#fff; padding:10px; display:block;">
+        </div>
+      </div>
+
+      <div id="groupSelectBox" style="display:none; width:100%;">
+        <div class="control-card-header">
+          <div class="control-card-title">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="#00f59b"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+            Group Extraction Control Panel
+          </div>
+          <span style="color:var(--text-muted); font-size:0.88rem;">Select a group chat below to extract or stream CSV:</span>
+        </div>
+
+        <div class="control-card-layout" style="margin-top:1rem;">
+          <div class="dropdown-wrapper">
+            <select id="groupSelect" class="custom-select" onchange="onGroupSelectionChange()">
+              <option value="">⏳ Fetching active WhatsApp groups...</option>
+            </select>
+          </div>
+
+          <div class="action-button-group">
+            <button class="btn btn-emerald-glow" id="btnExtract" onclick="extractSelectedGroup()">🚀 View Contacts Table</button>
+            <button class="btn btn-purple-grad" id="btnExportCSV" onclick="exportSelectedGroupCSV()">📥 Export Group CSV</button>
+            <button class="btn btn-emerald-glow" id="btnExportExcel" onclick="exportSelectedGroupExcel()">📊 Export to Excel (.xlsx)</button>
+            <button class="btn btn-glass-alt" id="btnExportAllCSV" onclick="exportAllGroupsCSV()">📦 Export All Groups</button>
+          </div>
+        </div>
+
+        <div id="extractLoading" style="display:none; margin-top:1.25rem; color:var(--accent-cyan); font-weight:600; font-size:0.95rem; text-align:center;">
+          ⏳ Extracting contacts from WhatsApp Web... Please wait...
+        </div>
+      </div>
+    </div>
+
+    <!-- Enhanced Metric Cards -->
+    <div class="metrics-grid" id="statsBar">
+      <div class="metric-card">
+        <div class="metric-icon-box icon-emerald">
+          <svg viewBox="0 0 24 24"><path d="M4 6h16v2H4zm0 5h16v2H4zm0 5h16v2H4z"/></svg>
+        </div>
+        <div class="metric-info">
+          <div class="metric-val" id="statTotalGroups">0</div>
+          <div class="metric-lbl">Total Groups Found</div>
+        </div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-icon-box icon-amber">
+          <svg viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-1.99.9-1.99 2L2 22l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM6 9h12v2H6V9zm8 5H6v-2h8v2zm4-6H6V6h12v2z"/></svg>
+        </div>
+        <div class="metric-info">
+          <div class="metric-val" id="statSelectedGroup" style="font-size:1.35rem; color:#fbbf24;">None Selected</div>
+          <div class="metric-lbl">Selected Group</div>
+        </div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-icon-box icon-indigo">
+          <svg viewBox="0 0 24 24"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
+        </div>
+        <div class="metric-info">
+          <div class="metric-val" id="statMemberCount" style="color:#c084fc;">0</div>
+          <div class="metric-lbl">Member Count / Contacts</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Action Toolbar & Search -->
+    <div class="glass-card toolbar-panel" id="controlsPanel">
+      <div class="search-input-box">
+        <svg class="search-icon-svg" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+        <input type="text" id="searchInput" placeholder="Search contacts by name or phone number...">
+      </div>
+
+      <div class="filter-buttons">
+        <button class="btn btn-glass-alt btn-active" id="btnFilterAll" onclick="setFilter('all')">All</button>
+        <button class="btn btn-glass-alt" id="btnFilterAdmins" onclick="setFilter('admins')">Admins</button>
+        <button class="btn btn-glass-alt" id="btnFilterMembers" onclick="setFilter('members')">Members</button>
+      </div>
+
+      <div style="display:flex; gap:0.6rem; flex-wrap:wrap;">
+        <button class="btn btn-glass-alt" onclick="copyPhoneNumbers()">📋 Copy Numbers</button>
+        <button class="btn btn-emerald-glow" onclick="exportExcel()">📊 Export Excel (.xlsx)</button>
+        <button class="btn btn-glass-alt" onclick="exportVCard()">📇 Export .VCF (vCard)</button>
+      </div>
+    </div>
+
+    <!-- Drop Zone File Vault -->
+    <div class="drop-zone" id="dropZone">
+      <span class="icon-glow">📊</span>
+      <h3 style="font-size:1.15rem; font-weight:700; margin-bottom:0.4rem;">Or Drag & Drop Exported Excel (.xlsx) / CSV Files Here</h3>
+      <p style="color:var(--text-muted); font-size:0.88rem;">Supports contact workbooks exported by WhatsApp Studio</p>
+      <input type="file" id="fileInput" accept=".xlsx,.xls,.csv">
+    </div>
+
+    <!-- Data Table Card -->
+    <div class="glass-card table-card" id="tableContainer">
+      <div class="table-responsive">
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Name / Pushname</th>
+              <th>Phone Number</th>
+              <th>Role</th>
+              <th>User JID</th>
+            </tr>
+          </thead>
+          <tbody id="tableBody">
+            <tr>
+              <td colspan="5" style="text-align:center; color:var(--text-muted); padding:2.5rem;">
+                Select a group above and click "🚀 View Contacts Table" or "📥 Export Group CSV"
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast-notification" id="toast">Copied to clipboard!</div>
+
+  <script>
+    let fetchedGroupsList = [];
+    let rawContacts = [];
+    let currentFilter = 'all';
+    let searchQuery = '';
+
+    // Real-Time Socket.io Lifecycle Handlers
+    let socket = null;
+    if (typeof io !== 'undefined') {
+      try {
+        socket = io();
+
+        // 1. QR Code Event
+        socket.on('qr', (qrDataUrl) => {
+          updateHeaderStatus('Waiting for scan...', '#38bdf8');
+          document.getElementById('loadingBox').style.display = 'none';
+          document.getElementById('qrBox').style.display = 'block';
+          document.getElementById('groupSelectBox').style.display = 'none';
+          document.getElementById('qrImg').src = qrDataUrl;
+        });
+
+        socket.on('whatsapp_qr', (data) => {
+          if (data && data.qr) {
+            updateHeaderStatus('Waiting for scan...', '#38bdf8');
+            document.getElementById('loadingBox').style.display = 'none';
+            document.getElementById('qrBox').style.display = 'block';
+            document.getElementById('groupSelectBox').style.display = 'none';
+            document.getElementById('qrImg').src = data.qr;
+          }
+        });
+
+        // 2. Authenticated Event
+        socket.on('authenticated', (data) => {
+          updateHeaderStatus('Authenticating...', '#fbbf24');
+          document.getElementById('loadingBox').style.display = 'block';
+          document.getElementById('loadingBox').querySelector('h3').innerText = '🔒 Authenticating WhatsApp Session...';
+          document.getElementById('qrBox').style.display = 'none';
+          document.getElementById('groupSelectBox').style.display = 'none';
+        });
+
+        // 3. Ready Event
+        socket.on('ready', (data) => {
+          const userPhone = data && data.userPhone ? ` (+${data.userPhone})` : '';
+          updateHeaderStatus(`Connected!${userPhone}`, '#10b981');
+          document.getElementById('loadingBox').style.display = 'none';
+          document.getElementById('qrBox').style.display = 'none';
+          document.getElementById('groupSelectBox').style.display = 'block';
+          fetchGroups();
+        });
+
+        socket.on('whatsapp_ready', (data) => {
+          const userPhone = data && data.userPhone ? ` (+${data.userPhone})` : '';
+          updateHeaderStatus(`Connected!${userPhone}`, '#10b981');
+          document.getElementById('loadingBox').style.display = 'none';
+          document.getElementById('qrBox').style.display = 'none';
+          document.getElementById('groupSelectBox').style.display = 'block';
+          fetchGroups();
+        });
+
+        // 4. Group List Events
+        socket.on('groups', (groups) => {
+          if (Array.isArray(groups)) populateGroupDropdown(groups);
+        });
+
+        socket.on('whatsapp_groups', (data) => {
+          if (data && Array.isArray(data.groups)) populateGroupDropdown(data.groups);
+        });
+
+        // 5. Disconnected Event
+        socket.on('disconnected', (data) => {
+          updateHeaderStatus('Disconnected', '#ef4444');
+          showToast('Session disconnected. Refreshing...');
+          document.getElementById('loadingBox').style.display = 'block';
+          document.getElementById('groupSelectBox').style.display = 'none';
+          document.getElementById('qrBox').style.display = 'none';
+        });
+
+        socket.on('export_progress', (data) => {
+          if (data && data.message) {
+            document.getElementById('extractLoading').style.display = 'block';
+            document.getElementById('extractLoading').innerText = `⏳ ${data.message}`;
+          }
+        });
+      } catch(e) {}
+    }
+
+    function updateHeaderStatus(text, color) {
+      document.getElementById('headerStatusText').innerText = text;
+      document.getElementById('headerStatusDot').style.background = color;
+      document.getElementById('headerStatusDot').style.boxShadow = `0 0 10px ${color}`;
+      document.getElementById('headerStatusBadge').style.borderColor = color;
+    }
+
+    async function checkInitialStatus() {
+      try {
+        const res = await fetch('/api/status');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.authenticated) {
+            updateHeaderStatus(data.userPhone ? `Connected! (+${data.userPhone})` : 'Connected!', '#10b981');
+            document.getElementById('loadingBox').style.display = 'none';
+            document.getElementById('qrBox').style.display = 'none';
+            document.getElementById('groupSelectBox').style.display = 'block';
+            fetchGroups();
+          } else if (data.qr) {
+            updateHeaderStatus('Waiting for scan...', '#38bdf8');
+            document.getElementById('loadingBox').style.display = 'none';
+            document.getElementById('qrBox').style.display = 'block';
+            document.getElementById('groupSelectBox').style.display = 'none';
+            document.getElementById('qrImg').src = data.qr;
+          }
+        }
+      } catch(e) {}
+    }
+
+    async function resetSession() {
+      if (!confirm('Are you sure you want to reset the WhatsApp session? This will log out and request a new QR code scan.')) return;
+      showToast('Resetting session...');
+      location.reload();
+    }
+
+    async function fetchGroups() {
+      try {
+        const res = await fetch('/api/groups');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.groups && Array.isArray(data.groups)) populateGroupDropdown(data.groups);
+        }
+      } catch(e) {}
+    }
+
+    function populateGroupDropdown(groups) {
+      fetchedGroupsList = groups;
+      document.getElementById('statTotalGroups').innerText = groups.length;
+
+      const select = document.getElementById('groupSelect');
+      select.innerHTML = '<option value="">-- Select a WhatsApp Group Chat --</option>';
+
+      groups.forEach(g => {
+        const opt = document.createElement('option');
+        opt.value = g.id || g.groupJid;
+        const memberText = g.memberCount ? ` (${g.memberCount} members)` : '';
+        opt.textContent = `${g.name}${memberText}`;
+        select.appendChild(opt);
+      });
+
+      onGroupSelectionChange();
+    }
+
+    function onGroupSelectionChange() {
+      const select = document.getElementById('groupSelect');
+      const jid = select.value;
+      if (!jid) {
+        document.getElementById('statSelectedGroup').innerText = 'None Selected';
+        document.getElementById('statMemberCount').innerText = rawContacts.length || '0';
+        return;
+      }
+
+      const selectedOpt = select.options[select.selectedIndex];
+      const gObj = fetchedGroupsList.find(g => (g.id || g.groupJid) === jid);
+
+      document.getElementById('statSelectedGroup').innerText = gObj ? gObj.name : selectedOpt.text.split(' (')[0];
+      document.getElementById('statMemberCount').innerText = gObj && gObj.memberCount ? gObj.memberCount : (rawContacts.length || 'Ready');
+    }
+
+    async function extractSelectedGroup() {
+      const select = document.getElementById('groupSelect');
+      const jid = select.value;
+      const selectedGroup = fetchedGroupsList.find(g => (g.id || g.groupJid) === jid);
+      const name = selectedGroup ? selectedGroup.name : select.options[select.selectedIndex]?.text;
+
+      if (!jid) return alert('Please select a WhatsApp group from the dropdown.');
+
+      document.getElementById('extractLoading').style.display = 'block';
+      document.getElementById('extractLoading').innerText = '⏳ Extracting contacts from WhatsApp Web... Please wait...';
+      document.getElementById('btnExtract').disabled = true;
+
+      try {
+        const res = await fetch('/api/extract', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ groupJid: jid, groupId: jid, name: name })
+        });
+        const data = await res.json();
+
+        if (data.success && data.contacts) {
+          rawContacts = data.contacts;
+          updateUI();
+          showToast(`Successfully extracted ${data.contacts.length} contacts!`);
+        } else {
+          alert('Extraction failed: ' + (data.error || 'Unknown error'));
+        }
+      } catch(err) {
+        alert('Error connecting to backend: ' + err.message);
+      } finally {
+        document.getElementById('extractLoading').style.display = 'none';
+        document.getElementById('btnExtract').disabled = false;
+      }
+    }
+
+    async function exportSelectedGroupCSV() {
+      const select = document.getElementById('groupSelect');
+      const jid = select.value;
+      const selectedGroup = fetchedGroupsList.find(g => (g.id || g.groupJid) === jid);
+      const name = selectedGroup ? selectedGroup.name : select.options[select.selectedIndex]?.text;
+
+      if (!jid) return alert('Please select a WhatsApp group from the dropdown.');
+
+      document.getElementById('extractLoading').style.display = 'block';
+      document.getElementById('extractLoading').innerText = `⏳ Exporting CSV for "${name}"... Please wait...`;
+      document.getElementById('btnExportCSV').disabled = true;
+
+      try {
+        const res = await fetch('/api/export', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ groupId: jid, groupJid: jid, name: name })
+        });
+
+        if (res.ok) {
+          const blob = await res.blob();
+          const contentDisposition = res.headers.get('Content-Disposition');
+          let filename = `whatsapp_group_contacts.csv`;
+          if (contentDisposition) {
+            const match = contentDisposition.match(/filename="?([^"]+)"?/);
+            if (match && match[1]) filename = match[1];
+          }
+
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = filename;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          window.URL.revokeObjectURL(url);
+          showToast(`Downloaded CSV: ${filename}`);
+        } else {
+          const errData = await res.json().catch(() => ({}));
+          alert('CSV Export failed: ' + (errData.error || 'Unknown error'));
+        }
+      } catch(err) {
+        alert('Error downloading CSV: ' + err.message);
+      } finally {
+        document.getElementById('extractLoading').style.display = 'none';
+        document.getElementById('btnExportCSV').disabled = false;
+      }
+    }
+
+    async function exportSelectedGroupExcel() {
+      const select = document.getElementById('groupSelect');
+      const jid = select.value;
+      const selectedGroup = fetchedGroupsList.find(g => (g.id || g.groupJid) === jid);
+      const name = selectedGroup ? selectedGroup.name : select.options[select.selectedIndex]?.text;
+
+      if (!jid) return alert('Please select a WhatsApp group from the dropdown.');
+
+      document.getElementById('extractLoading').style.display = 'block';
+      document.getElementById('extractLoading').innerText = `⏳ Exporting Excel (.xlsx) for "${name}"... Please wait...`;
+      document.getElementById('btnExportExcel').disabled = true;
+
+      try {
+        const res = await fetch('/api/export-excel', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ groupId: jid, groupJid: jid, name: name })
+        });
+
+        if (res.ok) {
+          const blob = await res.blob();
+          const contentDisposition = res.headers.get('Content-Disposition');
+          let filename = `whatsapp_group_contacts.xlsx`;
+          if (contentDisposition) {
+            const match = contentDisposition.match(/filename="?([^"]+)"?/);
+            if (match && match[1]) filename = match[1];
+          }
+
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = filename;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          window.URL.revokeObjectURL(url);
+          showToast(`Downloaded Excel (.xlsx): ${filename}`);
+        } else {
+          const errData = await res.json().catch(() => ({}));
+          alert('Excel Export failed: ' + (errData.error || 'Unknown error'));
+        }
+      } catch(err) {
+        alert('Error downloading Excel: ' + err.message);
+      } finally {
+        document.getElementById('extractLoading').style.display = 'none';
+        document.getElementById('btnExportExcel').disabled = false;
+      }
+    }
+
+    async function exportAllGroupsCSV() {
+      if (!confirm(`Export contacts for all ${fetchedGroupsList.length} groups into CSV? This may take a few moments.`)) return;
+
+      document.getElementById('extractLoading').style.display = 'block';
+      document.getElementById('extractLoading').innerText = `⏳ Exporting all ${fetchedGroupsList.length} groups to CSV... Please wait...`;
+      document.getElementById('btnExportAllCSV').disabled = true;
+
+      try {
+        const res = await fetch('/api/export', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ exportAll: true })
+        });
+
+        if (res.ok) {
+          const blob = await res.blob();
+          const contentDisposition = res.headers.get('Content-Disposition');
+          let filename = `whatsapp_all_groups_contacts.csv`;
+          if (contentDisposition) {
+            const match = contentDisposition.match(/filename="?([^"]+)"?/);
+            if (match && match[1]) filename = match[1];
+          }
+
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = filename;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          window.URL.revokeObjectURL(url);
+          showToast(`Downloaded All Groups CSV: ${filename}`);
+        } else {
+          const errData = await res.json().catch(() => ({}));
+          alert('Export All failed: ' + (errData.error || 'Unknown error'));
+        }
+      } catch(err) {
+        alert('Error downloading All Groups CSV: ' + err.message);
+      } finally {
+        document.getElementById('extractLoading').style.display = 'none';
+        document.getElementById('btnExportAllCSV').disabled = false;
+      }
+    }
+
+    // Drag & Drop File Loader
+    const dropZone = document.getElementById('dropZone');
+    const fileInput = document.getElementById('fileInput');
+
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+      dropZone.addEventListener(eventName, e => { e.preventDefault(); e.stopPropagation(); }, false);
+    });
+
+    ['dragenter', 'dragover'].forEach(eventName => {
+      dropZone.addEventListener(eventName, () => dropZone.classList.add('dragover'), false);
+    });
+
+    ['dragleave', 'drop'].forEach(eventName => {
+      dropZone.addEventListener(eventName, () => dropZone.classList.remove('dragover'), false);
+    });
+
+    dropZone.addEventListener('drop', (e) => {
+      const files = e.dataTransfer.files;
+      if (files.length > 0) handleUploadedFile(files[0]);
+    });
+
+    fileInput.addEventListener('change', (e) => {
+      if (e.target.files.length > 0) handleUploadedFile(e.target.files[0]);
+    });
+
+    function handleUploadedFile(file) {
+      const isExcel = file.name.endsWith('.xlsx') || file.name.endsWith('.xls');
+      const reader = new FileReader();
+
+      if (isExcel) {
+        reader.onload = function(e) {
+          try {
+            const data = new Uint8Array(e.target.result);
+            const workbook = XLSX.read(data, { type: 'array' });
+            const firstSheetName = workbook.SheetNames[0];
+            const worksheet = workbook.Sheets[firstSheetName];
+            const jsonRows = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+
+            if (jsonRows.length <= 1) return;
+
+            rawContacts = [];
+            for (let i = 1; i < jsonRows.length; i++) {
+              const row = jsonRows[i];
+              if (row && row.length >= 3) {
+                rawContacts.push({
+                  phoneNumber: String(row[0] || 'Unknown').trim(),
+                  name: String(row[1] || 'N/A').trim(),
+                  isAdmin: String(row[2] || '').trim().toUpperCase() === 'YES' ? 'Yes' : 'No',
+                  userJid: String(row[3] || '').trim()
+                });
+              }
+            }
+            updateUI();
+            showToast(`Loaded ${rawContacts.length} contacts from Excel!`);
+          } catch(err) {
+            alert('Error parsing Excel file: ' + err.message);
+          }
+        };
+        reader.readAsArrayBuffer(file);
+      } else {
+        reader.onload = function(e) {
+          parseCSV(e.target.result);
+        };
+        reader.readAsText(file);
+      }
+    }
+
+    function parseCSV(text) {
+      const lines = text.split(/\r\n|\n/).filter(line => line.trim() !== '');
+      if (lines.length <= 1) return;
+
+      rawContacts = [];
+      for (let i = 1; i < lines.length; i++) {
+        const row = parseCSVRow(lines[i]);
+        if (row.length >= 3) {
+          rawContacts.push({
+            phoneNumber: row[0] || 'Unknown',
+            name: row[1] || 'N/A',
+            isAdmin: (row[2] || '').toUpperCase() === 'YES' ? 'Yes' : 'No',
+            userJid: row[3] || ''
+          });
+        }
+      }
+
+      updateUI();
+      showToast(`Loaded ${rawContacts.length} contacts from CSV!`);
+    }
+
+    function parseCSVRow(rowText) {
+      const res = [];
+      let insideQuote = false;
+      let entry = '';
+      for (let i = 0; i < rowText.length; i++) {
+        const c = rowText[i];
+        if (c === '"') {
+          insideQuote = !insideQuote;
+        } else if (c === ',' && !insideQuote) {
+          res.push(entry.trim());
+          entry = '';
+        } else {
+          entry += c;
+        }
+      }
+      res.push(entry.trim());
+      return res;
+    }
+
+    function updateUI() {
+      document.getElementById('statMemberCount').innerText = rawContacts.length;
+      renderTable();
+    }
+
+    document.getElementById('searchInput').addEventListener('input', (e) => {
+      searchQuery = e.target.value.toLowerCase();
+      renderTable();
+    });
+
+    function setFilter(filter) {
+      currentFilter = filter;
+      document.getElementById('btnFilterAll').classList.toggle('btn-active', filter === 'all');
+      document.getElementById('btnFilterAdmins').classList.toggle('btn-active', filter === 'admins');
+      document.getElementById('btnFilterMembers').classList.toggle('btn-active', filter === 'members');
+      renderTable();
+    }
+
+    function getFilteredContacts() {
+      return rawContacts.filter(c => {
+        const matchesFilter = currentFilter === 'all' || 
+          (currentFilter === 'admins' && c.isAdmin === 'Yes') ||
+          (currentFilter === 'members' && c.isAdmin === 'No');
+        
+        const matchesSearch = c.name.toLowerCase().includes(searchQuery) ||
+          c.phoneNumber.toLowerCase().includes(searchQuery);
+
+        return matchesFilter && matchesSearch;
+      });
+    }
+
+    function renderTable() {
+      const tbody = document.getElementById('tableBody');
+      tbody.innerHTML = '';
+      const list = getFilteredContacts();
+
+      if (list.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:2.5rem;">No contacts found matching filter criteria.</td></tr>`;
+        return;
+      }
+
+      list.forEach((c, idx) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td style="color:var(--text-muted); font-size:0.85rem;">${idx + 1}</td>
+          <td style="font-weight:600; color:var(--text-primary);">${escapeHtml(c.name)}</td>
+          <td style="font-family:monospace; color:var(--accent-cyan); font-weight:600;">${escapeHtml(c.phoneNumber)}</td>
+          <td><span class="${c.isAdmin === 'Yes' ? 'badge-admin' : 'badge-member'}">${c.isAdmin === 'Yes' ? '⭐ Admin' : 'Member'}</span></td>
+          <td style="font-size:0.82rem; color:var(--text-muted); font-family:monospace;">${escapeHtml(c.userJid)}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function copyPhoneNumbers() {
+      const list = getFilteredContacts();
+      const numbers = list.map(c => c.phoneNumber).join('\n');
+      navigator.clipboard.writeText(numbers);
+      showToast(`Copied ${list.length} phone numbers!`);
+    }
+
+    function exportExcel() {
+      const list = getFilteredContacts();
+      if (list.length === 0) return alert('No contacts to export.');
+
+      const excelData = [
+        ['PHONE_NUMBER', 'NAME', 'IS_ADMIN', 'USER_JID'],
+        ...list.map(c => [c.phoneNumber, c.name, c.isAdmin, c.userJid])
+      ];
+
+      const worksheet = XLSX.utils.aoa_to_sheet(excelData);
+      worksheet['!cols'] = [
+        { wch: 18 },
+        { wch: 28 },
+        { wch: 12 },
+        { wch: 30 }
+      ];
+
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Filtered Contacts');
+      XLSX.writeFile(workbook, 'whatsapp_contacts_filtered.xlsx');
+      showToast(`Exported ${list.length} contacts to Excel (.xlsx)!`);
+    }
+
+    function exportVCard() {
+      const list = getFilteredContacts();
+      let vcardData = '';
+
+      list.forEach(c => {
+        vcardData += `BEGIN:VCARD\nVERSION:3.0\nFN:${c.name !== 'N/A' ? c.name : 'WA ' + c.phoneNumber}\nTEL;TYPE=CELL:${c.phoneNumber}\nEND:VCARD\n`;
+      });
+
+      const blob = new Blob([vcardData], { type: 'text/vcard' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'whatsapp_contacts.vcf';
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast(`Exported ${list.length} contacts to vCard (.vcf)`);
+    }
+
+    function showToast(msg) {
+      const toast = document.getElementById('toast');
+      toast.innerText = msg;
+      toast.classList.add('show');
+      setTimeout(() => toast.classList.remove('show'), 3000);
+    }
+
+    function escapeHtml(text) {
+      return (text || '').replace(/[&<>"']/g, function(m) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[m];
+      });
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      checkInitialStatus();
+
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.get('demo') === 'true') {
+        rawContacts = [
+          { phoneNumber: '+919392225196', name: 'Mounika Mam', isAdmin: 'Yes', userJid: '919392225196@c.us' },
+          { phoneNumber: '+918097694779', name: 'Aniket Vishwakarma', isAdmin: 'No', userJid: '918097694779@c.us' },
+          { phoneNumber: '+919136727911', name: 'Vishal Clg', isAdmin: 'No', userJid: '919136727911@c.us' },
+          { phoneNumber: '+917039142977', name: 'Varun V3ctor♟️', isAdmin: 'No', userJid: '7039142977@c.us' },
+          { phoneNumber: '+919833446612', name: 'Shalaka', isAdmin: 'No', userJid: '9833446612@c.us' }
+        ];
+        updateUI();
+      }
+    });
+  </script>
+</body>
+</html>
