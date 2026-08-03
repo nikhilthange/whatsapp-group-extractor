@@ -146,14 +146,10 @@ io.on('connection', (socket) => {
       }
 
       const now = Date.now();
-      if (sessionObj.firstQrTime && (now - sessionObj.firstQrTime < 240000) && sessionObj.qrCodeDataUrl) {
-        console.log(`⏳ [${sessionId}] Preserving initial stable QR code for 4-minute window (${Math.round((240000 - (now - sessionObj.firstQrTime))/1000)}s remaining)`);
-        return;
-      }
-
-      sessionObj.firstQrTime = now;
       sessionObj.lastQrTime = now;
-      console.log(`📱 [${sessionId}] New QR code generated! Locked for 4 minutes (240s window).`);
+      if (!sessionObj.firstQrTime) sessionObj.firstQrTime = now;
+
+      console.log(`📱 [${sessionId}] Fresh live QR code generated from WhatsApp Web.`);
       sessionObj.isInitializing = false;
       sessionObj.isLaunching = false;
       sessionObj.qrCodeDataUrl = await QRCode.toDataURL(qr, { margin: 2, scale: 6 });

@@ -937,13 +937,8 @@
     }
 
     function renderQrCode(qrDataUrl) {
-      const now = Date.now();
-      if (lastQrRenderTime && (now - lastQrRenderTime < 210000)) {
-        console.log(`⏳ [Client] Holding stable QR image for user scan (${Math.round((240000 - (now - lastQrRenderTime))/1000)}s remaining)`);
-        return;
-      }
-
-      lastQrRenderTime = now;
+      if (isSessionAuthenticated) return;
+      lastQrRenderTime = Date.now();
       const img = document.getElementById('qrImg');
       if (img) {
         img.setAttribute('data-qr-raw', qrDataUrl);
