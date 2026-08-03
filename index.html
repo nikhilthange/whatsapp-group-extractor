@@ -1050,17 +1050,21 @@
         if (res.ok) {
           const data = await res.json();
           if (data.authenticated) {
+            isSessionAuthenticated = true;
             updateHeaderStatus(data.userPhone ? `Connected! (+${data.userPhone})` : 'Connected!', '#10b981');
             document.getElementById('loadingBox').style.display = 'none';
             document.getElementById('qrBox').style.display = 'none';
             document.getElementById('groupSelectBox').style.display = 'block';
             fetchGroups();
-          } else if (data.qr) {
+          } else {
+            isSessionAuthenticated = false;
             updateHeaderStatus('Waiting for scan...', '#38bdf8');
             document.getElementById('loadingBox').style.display = 'none';
             document.getElementById('qrBox').style.display = 'block';
             document.getElementById('groupSelectBox').style.display = 'none';
-            renderQrCode(data.qr);
+            if (data.qr) {
+              renderQrCode(data.qr);
+            }
           }
         }
       } catch(e) {}
@@ -1079,25 +1083,29 @@
     let groupsPollingInterval = null;
 
     async function fetchGroups() {
+      if (!isSessionAuthenticated) return;
       try {
         const res = await apiFetch('/api/groups');
         if (res.ok) {
           const data = await res.json();
+          if (data && data.authenticated === false) return;
           const groups = (data && data.groups) ? data.groups : (Array.isArray(data) ? data : []);
-          if (groups && Array.isArray(groups) && groups.length > 0) {
+          if (groups && Array.isArray(groups)) {
             populateGroupDropdown(groups);
-            if (groupsPollingInterval) {
+            if (groups.length > 0 && groupsPollingInterval) {
               clearInterval(groupsPollingInterval);
               groupsPollingInterval = null;
             }
-          } else if (groups && Array.isArray(groups)) {
-            populateGroupDropdown(groups);
           }
         }
       } catch(e) {}
     }
 
     function populateGroupDropdown(groups) {
+      if (!isSessionAuthenticated) {
+        console.log('🛡️ Suppressed group dropdown population because session is not authenticated.');
+        return;
+      }
       document.getElementById('loadingBox').style.display = 'none';
       document.getElementById('qrBox').style.display = 'none';
       document.getElementById('groupSelectBox').style.display = 'block';
