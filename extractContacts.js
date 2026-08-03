@@ -53,11 +53,7 @@ const puppeteerConfig = {
     '--disable-accelerated-2d-canvas',
     '--no-first-run',
     '--no-zygote',
-    '--single-process',
-    '--disable-gpu',
-    '--disable-extensions',
-    '--disable-component-update',
-    '--no-default-browser-check'
+    '--disable-gpu'
   ]
 };
 
