@@ -70,7 +70,12 @@ const puppeteerConfig = {
     '--disable-renderer-backgrounding',
     '--disable-sync',
     '--force-color-profile=srgb',
-    '--metrics-recording-only'
+    '--metrics-recording-only',
+    '--blink-settings=imagesEnabled=false',
+    '--disable-remote-fonts',
+    '--disable-speech-api',
+    '--disk-cache-size=1',
+    '--media-cache-size=1'
   ]
 };
 
@@ -102,6 +107,23 @@ const client = new Client({
     remotePath: 'https://raw.githubusercontent.com/wwebjs/wwjs-whatsapp-web/main/mod.html'
   },
   puppeteer: puppeteerConfig
+});
+
+client.on('loading_screen', async (percent, message) => {
+  if (client.pupPage) {
+    try {
+      await client.pupPage.setRequestInterception(true);
+      client.pupPage.removeAllListeners('request');
+      client.pupPage.on('request', (req) => {
+        const resourceType = req.resourceType();
+        if (['image', 'stylesheet', 'font', 'media'].includes(resourceType)) {
+          req.abort();
+        } else {
+          req.continue();
+        }
+      });
+    } catch(e) {}
+  }
 });
 
 function askQuestion(query) {
