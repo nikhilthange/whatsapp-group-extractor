@@ -71,6 +71,11 @@ io.on('connection', (socket) => {
     sessionObj.lastActiveTime = Date.now();
     sessionObj.socket = socket;
 
+    if (sessionObj.isLaunching) {
+      console.log(`⏳ Session ${sessionId} is currently launching/initializing. Socket attached to active launch instance.`);
+      return;
+    }
+
     socket.emit('status', {
       status: sessionObj.statusState,
       authenticated: sessionObj.statusState === 'connected',
@@ -111,7 +116,8 @@ io.on('connection', (socket) => {
       userPhone: '',
       lastActiveTime: Date.now(),
       disconnectTimeout: null,
-      isInitializing: true
+      isInitializing: true,
+      isLaunching: true
     };
     activeSessions.set(sessionId, sessionObj);
 
@@ -128,6 +134,7 @@ io.on('connection', (socket) => {
       sessionObj.lastQrTime = now;
       console.log(`📱 [${sessionId}] New QR code generated! (Valid for 20+ seconds gap)`);
       sessionObj.isInitializing = false;
+      sessionObj.isLaunching = false;
       sessionObj.qrCodeDataUrl = await QRCode.toDataURL(qr, { margin: 2, scale: 6 });
       sessionObj.statusState = 'waiting_for_scan';
       sessionObj.lastActiveTime = Date.now();
@@ -142,6 +149,7 @@ io.on('connection', (socket) => {
     client.on('authenticated', () => {
       console.log(`🔒 [${sessionId}] Client authenticated!`);
       sessionObj.isInitializing = false;
+      sessionObj.isLaunching = false;
       sessionObj.statusState = 'authenticating';
       sessionObj.lastActiveTime = Date.now();
 
@@ -156,6 +164,7 @@ io.on('connection', (socket) => {
     client.on('ready', async () => {
       console.log(`🚀 [${sessionId}] WhatsApp Client is authenticated & ready!`);
       sessionObj.isInitializing = false;
+      sessionObj.isLaunching = false;
       sessionObj.statusState = 'connected';
       sessionObj.qrCodeDataUrl = null;
       sessionObj.lastActiveTime = Date.now();
@@ -186,6 +195,7 @@ io.on('connection', (socket) => {
       console.log(`❌ [${sessionId}] Client disconnected:`, reason);
       sessionObj.statusState = 'disconnected';
       sessionObj.isInitializing = false;
+      sessionObj.isLaunching = false;
       if (sessionObj.socket) {
         sessionObj.socket.emit('disconnected', { reason, message: 'Session disconnected' });
       }
@@ -202,6 +212,7 @@ io.on('connection', (socket) => {
       console.error(`❌ [${sessionId}] Auth Failure:`, msg);
       sessionObj.statusState = 'auth_failure';
       sessionObj.isInitializing = false;
+      sessionObj.isLaunching = false;
       if (sessionObj.socket) {
         sessionObj.socket.emit('status', { status: sessionObj.statusState, message: 'Authentication failed. Please rescan.' });
       }
@@ -210,6 +221,7 @@ io.on('connection', (socket) => {
     client.initialize().catch(err => {
       console.error(`⚠️ [${sessionId}] client.initialize() error:`, err ? (err.message || err) : 'Unknown error');
       sessionObj.isInitializing = false;
+      sessionObj.isLaunching = false;
     });
   }
 
