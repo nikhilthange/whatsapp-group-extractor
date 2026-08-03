@@ -4,7 +4,7 @@
   "description": "Extract contacts from WhatsApp groups to CSV files using whatsapp-web.js",
   "main": "extractContacts.js",
   "scripts": {
-    "start": "node server.js",
+    "start": "node --max-old-space-size=256 --expose-gc server.js",
     "extract": "node extractContacts.js"
   },
   "keywords": [

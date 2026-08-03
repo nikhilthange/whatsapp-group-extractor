@@ -28,8 +28,18 @@ const io = new Server(server, {
 });
 
 const PORT = process.env.PORT || 3000;
-const MAX_ACTIVE_SESSIONS = parseInt(process.env.MAX_ACTIVE_SESSIONS || '5', 10);
+const MAX_ACTIVE_SESSIONS = parseInt(process.env.MAX_ACTIVE_SESSIONS || '2', 10);
 const IDLE_SESSION_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes idle cleanup
+
+// Periodic Garbage Collection to keep RAM under 350MB
+setInterval(() => {
+  if (global.gc) {
+    try {
+      global.gc();
+      console.log('🧹 [RAM Guard] Periodic V8 Garbage Collection executed.');
+    } catch(e) {}
+  }
+}, 60000);
 
 app.use(express.json());
 app.use(express.static(__dirname));
