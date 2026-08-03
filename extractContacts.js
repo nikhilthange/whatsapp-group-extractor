@@ -151,16 +151,75 @@ async function getGroupsWithRetry(targetClient, maxAttempts = 5, intervalMs = 30
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       console.log(`[IndexedDB Sync] Fetching chats (Attempt ${attempt}/${maxAttempts})...`);
-      const chats = await targetClient.getChats();
-      const groupChats = (chats || []).filter(c => c.isGroup);
+      let chats = [];
+      try {
+        chats = await targetClient.getChats();
+      } catch (err) {
+        console.log('client.getChats failed, falling back to puppeteer page evaluation...');
+      }
+
+      if ((!chats || chats.length === 0) && targetClient.pupPage) {
+        try {
+          const evaluatedChats = await targetClient.pupPage.evaluate(() => {
+            let chatModels = [];
+            try {
+              if (window.require) {
+                const collections = window.require('WAWebCollections');
+                if (collections && collections.Chat && typeof collections.Chat.getModelsArray === 'function') {
+                  chatModels = collections.Chat.getModelsArray();
+                }
+              }
+            } catch (e) {}
+
+            if (!chatModels || chatModels.length === 0) {
+              try {
+                if (window.Store && window.Store.Chat) {
+                  if (typeof window.Store.Chat.getModelsArray === 'function') {
+                    chatModels = window.Store.Chat.getModelsArray();
+                  } else if (window.Store.Chat.models) {
+                    chatModels = Array.from(window.Store.Chat.models);
+                  } else if (window.Store.Chat._models) {
+                    chatModels = Array.from(window.Store.Chat._models);
+                  }
+                }
+              } catch (e) {}
+            }
+
+            if (!chatModels) chatModels = [];
+
+            return chatModels.map(c => {
+              const serializedId = (c.id && (c.id._serialized || (typeof c.id === 'string' ? c.id : ''))) || '';
+              const isGroupChat = Boolean(c.isGroup || (c.id && c.id.server === 'g.us') || serializedId.endsWith('@g.us'));
+              const pCount = (c.groupMetadata && c.groupMetadata.participants) ? c.groupMetadata.participants.length : (c.participantsCount || 0);
+
+              return {
+                id: { _serialized: serializedId },
+                _serialized: serializedId,
+                name: c.formattedTitle || c.name || c.title || 'Unnamed Group',
+                isGroup: isGroupChat,
+                participants: (c.groupMetadata && c.groupMetadata.participants) ? c.groupMetadata.participants : []
+              };
+            });
+          });
+
+          if (evaluatedChats && evaluatedChats.length > 0) {
+            chats = evaluatedChats;
+          }
+        } catch (e) {
+          console.error('Puppeteer page chat eval failed:', e.message);
+        }
+      }
+
+      const groupChats = (chats || []).filter(c => Boolean(c.isGroup || (c.id && (c.id.server === 'g.us' || (c.id._serialized && c.id._serialized.endsWith('@g.us')))) || (c._serialized && c._serialized.endsWith('@g.us'))));
 
       if (groupChats.length > 0) {
         console.log(`[IndexedDB Sync] Success! Found ${groupChats.length} group chats on attempt ${attempt}.`);
         return groupChats.map(c => {
+          const jid = (c.id && c.id._serialized) ? c.id._serialized : (c._serialized || (typeof c.id === 'string' ? c.id : ''));
           const mCount = c.participants ? c.participants.length : (c.groupMetadata ? (c.groupMetadata.participants ? c.groupMetadata.participants.length : 0) : 0);
           return {
-            id: c.id._serialized,
-            groupJid: c.id._serialized,
+            id: jid,
+            groupJid: jid,
             name: c.name || c.formattedTitle || 'Unnamed Group',
             memberCount: mCount,
             count: mCount
@@ -177,25 +236,7 @@ async function getGroupsWithRetry(targetClient, maxAttempts = 5, intervalMs = 30
     }
   }
 
-  // Fallback query if loop exhausted
-  try {
-    console.log('[IndexedDB Sync] Exhausted retries. Performing final fallback query...');
-    const finalChats = await targetClient.getChats();
-    const finalGroups = (finalChats || []).filter(c => c.isGroup);
-    return finalGroups.map(c => {
-      const mCount = c.participants ? c.participants.length : (c.groupMetadata ? (c.groupMetadata.participants ? c.groupMetadata.participants.length : 0) : 0);
-      return {
-        id: c.id._serialized,
-        groupJid: c.id._serialized,
-        name: c.name || c.formattedTitle || 'Unnamed Group',
-        memberCount: mCount,
-        count: mCount
-      };
-    });
-  } catch (err) {
-    console.error('[IndexedDB Sync Final Fallback Error]:', err.message);
-    return [];
-  }
+  return [];
 }
 
 async function fetchUserGroups(targetClient, maxRetries = 5) {

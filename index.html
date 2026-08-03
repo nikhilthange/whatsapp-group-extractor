@@ -963,12 +963,23 @@
       setTimeout(() => location.reload(), 2000);
     }
 
+    let groupsPollingInterval = null;
+
     async function fetchGroups() {
       try {
         const res = await apiFetch('/api/groups');
         if (res.ok) {
           const data = await res.json();
-          if (data.groups && Array.isArray(data.groups)) populateGroupDropdown(data.groups);
+          const groups = (data && data.groups) ? data.groups : (Array.isArray(data) ? data : []);
+          if (groups && Array.isArray(groups) && groups.length > 0) {
+            populateGroupDropdown(groups);
+            if (groupsPollingInterval) {
+              clearInterval(groupsPollingInterval);
+              groupsPollingInterval = null;
+            }
+          } else if (groups && Array.isArray(groups)) {
+            populateGroupDropdown(groups);
+          }
         }
       } catch(e) {}
     }
@@ -1417,6 +1428,11 @@
     window.addEventListener('DOMContentLoaded', () => {
       checkInitialStatus();
       setInterval(checkInitialStatus, 3000);
+      groupsPollingInterval = setInterval(() => {
+        if (fetchedGroupsList.length === 0) {
+          fetchGroups();
+        }
+      }, 4000);
 
       const urlParams = new URLSearchParams(window.location.search);
       if (urlParams.get('demo') === 'true') {
