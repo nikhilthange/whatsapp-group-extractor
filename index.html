@@ -999,6 +999,7 @@
 
         // 2. Authenticated Event
         socket.on('authenticated', (data) => {
+          isSessionAuthenticated = true;
           updateHeaderStatus('Authenticating...', '#fbbf24');
           document.getElementById('loadingBox').style.display = 'block';
           document.getElementById('loadingBox').querySelector('h3').innerText = '🔒 Authenticating WhatsApp Session...';
