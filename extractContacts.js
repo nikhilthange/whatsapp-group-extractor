@@ -86,6 +86,13 @@ try {
       try { fs.unlinkSync(p); } catch(e) {}
     }
   });
+
+  ['Cache', 'Code Cache', 'GPUCache'].forEach(folder => {
+    const p = path.join(sessionDir, folder);
+    if (fs.existsSync(p)) {
+      try { fs.rmSync(p, { recursive: true, force: true }); } catch(e) {}
+    }
+  });
 } catch(e) {}
 
 const client = new Client({

@@ -203,6 +203,34 @@ app.get('/api/status', (req, res) => {
   });
 });
 
+app.post('/api/reset', async (req, res) => {
+  try {
+    console.log('🔄 Session reset API requested...');
+    isAuthenticated = false;
+    qrCodeDataUrl = null;
+    groupList = [];
+    statusState = 'waiting_for_scan';
+
+    if (client) {
+      try { await client.logout(); } catch(e) {}
+      try { await client.destroy(); } catch(e) {}
+    }
+
+    const authDir = path.join(__dirname, '.wwebjs_auth');
+    if (fs.existsSync(authDir)) {
+      await fs.promises.rm(authDir, { recursive: true, force: true }).catch(() => {});
+    }
+
+    setTimeout(() => {
+      client.initialize().catch(err => console.error('⚠️ Reset re-init error:', err));
+    }, 2000);
+
+    res.json({ success: true, message: 'Session reset. Generating new QR code...' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 process.on('uncaughtException', (err) => {
   console.error('⚠️ Server Uncaught Exception (safely caught):', err.message || err);
 });
