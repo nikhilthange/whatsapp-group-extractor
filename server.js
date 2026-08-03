@@ -137,6 +137,7 @@ client.on('ready', async () => {
     console.log(`📋 Found ${groupList.length} group chats!`);
     io.emit('whatsapp_groups', { groups: groupList });
     io.emit('groups', groupList);
+    io.emit('groups_loaded', { groups: groupList });
   } catch(e) {
     console.warn('⚠️ Error fetching groups on ready:', e.message);
   }
@@ -474,30 +475,74 @@ app.post('/api/export-excel', async (req, res) => {
 // JSON extraction endpoint for internal dashboard rendering
 app.post('/api/extract', async (req, res) => {
   const { groupJid, groupId, name } = req.body;
-  const targetJid = groupJid || groupId;
+  const targetJid = groupId || groupJid;
 
   if (!isAuthenticated) {
     return res.status(401).json({ error: 'WhatsApp is not authenticated. Scan QR code first.' });
   }
   if (!targetJid) {
-    return res.status(400).json({ error: 'Group JID is required.' });
+    return res.status(400).json({ error: 'Group ID is required.' });
   }
 
   try {
-    console.log(`🌐 API Request: Extracting contacts for group "${name}" (${targetJid})`);
-    const targetGroup = { groupJid: targetJid, name: name || 'Group' };
-    const result = await exportGroupContacts(targetGroup);
+    console.log(`🌐 API Request: Extracting contacts for group "${name || targetJid}" (${targetJid})`);
     
+    let participants = [];
+    let groupName = name || 'Group';
+
+    try {
+      const chat = await client.getChatById(targetJid);
+      if (chat && chat.isGroup && chat.participants) {
+        groupName = chat.name || groupName;
+        participants = chat.participants.map((p, idx) => {
+          const sId = p.id ? (p.id._serialized || p.id) : '';
+          const userNum = p.id ? (p.id.user || String(sId).split('@')[0]) : '';
+          const isAdminRole = Boolean(p.isAdmin || p.isSuperAdmin);
+
+          return {
+            index: idx + 1,
+            id: sId,
+            userJid: sId,
+            phone: userNum ? '+' + userNum : 'N/A',
+            phoneNumber: userNum ? '+' + userNum : 'N/A',
+            name: p.name || p.pushname || (p.contact ? (p.contact.name || p.contact.pushname) : 'N/A') || userNum || 'N/A',
+            isAdmin: isAdminRole ? 'Yes' : 'No',
+            role: isAdminRole ? 'Group Admin' : 'Member'
+          };
+        });
+      }
+    } catch (e) {
+      console.warn('⚠️ client.getChatById fallback to exportGroupContacts:', e.message);
+    }
+
+    if (!participants || participants.length === 0) {
+      const targetGroup = { groupJid: targetJid, name: groupName };
+      const result = await exportGroupContacts(targetGroup);
+      if (result && result.finalRecords) {
+        participants = result.finalRecords.map((r, idx) => ({
+          index: idx + 1,
+          id: r.userJid || '',
+          userJid: r.userJid || '',
+          phone: r.phoneNumber || 'N/A',
+          phoneNumber: r.phoneNumber || 'N/A',
+          name: r.name || 'N/A',
+          isAdmin: r.isAdmin || 'No',
+          role: r.isAdmin === 'Yes' ? 'Group Admin' : 'Member'
+        }));
+      }
+    }
+
     res.json({
       success: true,
-      count: result.finalRecords.length,
-      contacts: result.finalRecords,
-      excelFilename: result.excelFilename,
-      csvFilename: result.csvFilename
+      groupName: groupName,
+      totalMembers: participants.length,
+      count: participants.length,
+      contacts: participants,
+      participants: participants
     });
   } catch (err) {
-    console.error('❌ API Extraction error:', err);
-    res.status(500).json({ error: err.message });
+    console.error('❌ Group extraction error:', err);
+    res.status(500).json({ error: err.message || 'Failed to extract contacts' });
   }
 });
 

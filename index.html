@@ -871,11 +871,22 @@
 
         // 4. Group List Events
         socket.on('groups', (groups) => {
+          document.getElementById('groupSelectBox').style.display = 'block';
           if (Array.isArray(groups)) populateGroupDropdown(groups);
         });
 
         socket.on('whatsapp_groups', (data) => {
+          document.getElementById('groupSelectBox').style.display = 'block';
           if (data && Array.isArray(data.groups)) populateGroupDropdown(data.groups);
+        });
+
+        socket.on('groups_loaded', (data) => {
+          document.getElementById('loadingBox').style.display = 'none';
+          document.getElementById('qrBox').style.display = 'none';
+          document.getElementById('groupSelectBox').style.display = 'block';
+
+          const groups = Array.isArray(data) ? data : (data && data.groups ? data.groups : []);
+          if (groups && Array.isArray(groups)) populateGroupDropdown(groups);
         });
 
         // 5. Disconnected Event
@@ -945,19 +956,27 @@
     }
 
     function populateGroupDropdown(groups) {
-      fetchedGroupsList = groups;
-      document.getElementById('statTotalGroups').innerText = groups.length;
+      document.getElementById('loadingBox').style.display = 'none';
+      document.getElementById('qrBox').style.display = 'none';
+      document.getElementById('groupSelectBox').style.display = 'block';
+
+      fetchedGroupsList = groups || [];
+      const totalEl = document.getElementById('statTotalGroups') || document.getElementById('totalGroupsCount');
+      if (totalEl) totalEl.innerText = fetchedGroupsList.length;
 
       const select = document.getElementById('groupSelect');
-      select.innerHTML = '<option value="">-- Select a WhatsApp Group Chat --</option>';
+      if (select) {
+        select.innerHTML = '<option value="">-- Select a WhatsApp Group Chat --</option>';
 
-      groups.forEach(g => {
-        const opt = document.createElement('option');
-        opt.value = g.id || g.groupJid;
-        const memberText = g.memberCount ? ` (${g.memberCount} members)` : '';
-        opt.textContent = `${g.name}${memberText}`;
-        select.appendChild(opt);
-      });
+        fetchedGroupsList.forEach(g => {
+          const opt = document.createElement('option');
+          opt.value = g.id || g.groupJid;
+          const count = g.memberCount || g.count || 0;
+          const memberText = count ? ` (${count} members)` : '';
+          opt.textContent = `${g.name}${memberText}`;
+          select.appendChild(opt);
+        });
+      }
 
       onGroupSelectionChange();
     }
