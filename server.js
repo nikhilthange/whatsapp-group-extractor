@@ -256,20 +256,13 @@ io.on('connection', (socket) => {
   }
 
   socket.on('disconnect', () => {
-    console.log(`🔌 Socket disconnected ID: ${socket.id} (Session ID: ${sessionId}). Starting 10-minute idle timer...`);
-    if (sessionObj.socket && sessionObj.socket.id === socket.id) {
+    console.log(`🔌 Socket disconnected ID: ${socket.id} (Session ID: ${sessionId}). Persistent WhatsApp session retained indefinitely.`);
+    if (sessionObj && sessionObj.socket && sessionObj.socket.id === socket.id) {
       sessionObj.socket = null;
     }
-
-    sessionObj.lastActiveTime = Date.now();
-
-    if (sessionObj.disconnectTimeout) clearTimeout(sessionObj.disconnectTimeout);
-
-    sessionObj.disconnectTimeout = setTimeout(async () => {
-      console.log(`🗑️ [Garbage Collector] Session ${sessionId} idle for 10 minutes. Destroying Chrome & purging storage...`);
-      await destroyWhatsAppSession(sessionId, sessionObj.client);
-      activeSessions.delete(sessionId);
-    }, IDLE_SESSION_TIMEOUT_MS);
+    if (sessionObj) {
+      sessionObj.lastActiveTime = Date.now();
+    }
   });
 });
 
