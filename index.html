@@ -807,8 +807,15 @@
   <script>
     let fetchedGroupsList = [];
     let rawContacts = [];
-    let currentFilter = 'all';
-    let searchQuery = '';
+    let activeSocketId = '';
+
+    async function apiFetch(url, options = {}) {
+      options.headers = options.headers || {};
+      if (activeSocketId) {
+        options.headers['X-Socket-ID'] = activeSocketId;
+      }
+      return fetch(url, options);
+    }
 
     // Real-Time Socket.io Lifecycle Handlers
     let socket = null;
@@ -820,6 +827,11 @@
           reconnection: true,
           reconnectionAttempts: 15,
           reconnectionDelay: 2000
+        });
+
+        socket.on('connect', () => {
+          activeSocketId = socket.id;
+          console.log('⚡ Connected to server with Socket ID:', activeSocketId);
         });
 
         // 1. QR Code Event
@@ -916,7 +928,7 @@
 
     async function checkInitialStatus() {
       try {
-        const res = await fetch('/api/status');
+        const res = await apiFetch('/api/status');
         if (res.ok) {
           const data = await res.json();
           if (data.authenticated) {
@@ -940,14 +952,14 @@
       if (!confirm('Are you sure you want to reset the WhatsApp session? This will log out and request a new QR code scan.')) return;
       showToast('Resetting session & purging session cache...');
       try {
-        await fetch('/api/reset', { method: 'POST' });
+        await apiFetch('/api/reset', { method: 'POST' });
       } catch(e) {}
       setTimeout(() => location.reload(), 2500);
     }
 
     async function fetchGroups() {
       try {
-        const res = await fetch('/api/groups');
+        const res = await apiFetch('/api/groups');
         if (res.ok) {
           const data = await res.json();
           if (data.groups && Array.isArray(data.groups)) populateGroupDropdown(data.groups);
@@ -1010,7 +1022,7 @@
       document.getElementById('btnExtract').disabled = true;
 
       try {
-        const res = await fetch('/api/extract', {
+        const res = await apiFetch('/api/extract', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ groupJid: jid, groupId: jid, name: name })
@@ -1045,7 +1057,7 @@
       document.getElementById('btnExportCSV').disabled = true;
 
       try {
-        const res = await fetch('/api/export', {
+        const res = await apiFetch('/api/export', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ groupId: jid, groupJid: jid, name: name })
@@ -1094,7 +1106,7 @@
       document.getElementById('btnExportExcel').disabled = true;
 
       try {
-        const res = await fetch('/api/export-excel', {
+        const res = await apiFetch('/api/export-excel', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ groupId: jid, groupJid: jid, name: name })
@@ -1138,7 +1150,7 @@
       document.getElementById('btnExportAllCSV').disabled = true;
 
       try {
-        const res = await fetch('/api/export', {
+        const res = await apiFetch('/api/export', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ exportAll: true })

@@ -79,44 +79,126 @@ if (chromePath || process.env.PUPPETEER_EXECUTABLE_PATH) {
   puppeteerConfig.executablePath = chromePath || process.env.PUPPETEER_EXECUTABLE_PATH;
 }
 
-try {
-  const sessionDir = path.join(__dirname, '.wwebjs_auth', 'session-whatsapp-studio');
-  ['DevToolsActivePort', 'SingletonLock', 'SingletonCookie', 'SingletonSocket', 'lockfile'].forEach(f => {
-    const p = path.join(sessionDir, f);
-    if (fs.existsSync(p)) {
-      try { fs.unlinkSync(p); } catch(e) {}
+function createWhatsAppClient(sessionId) {
+  const cleanSessionId = sessionId || 'default';
+  const sessionDataPath = path.join(__dirname, '.wwebjs_auth', `session-${cleanSessionId}`);
+
+  try {
+    ['DevToolsActivePort', 'SingletonLock', 'SingletonCookie', 'SingletonSocket', 'lockfile'].forEach(f => {
+      const p = path.join(sessionDataPath, f);
+      if (fs.existsSync(p)) {
+        try { fs.unlinkSync(p); } catch(e) {}
+      }
+    });
+
+    ['Cache', 'Code Cache', 'GPUCache'].forEach(folder => {
+      const p = path.join(sessionDataPath, folder);
+      if (fs.existsSync(p)) {
+        try { fs.rmSync(p, { recursive: true, force: true }); } catch(e) {}
+      }
+    });
+  } catch(e) {}
+
+  const newClient = new Client({
+    authStrategy: new LocalAuth({
+      clientId: `session-${cleanSessionId}`,
+      dataPath: sessionDataPath
+    }),
+    webVersionCache: {
+      type: 'remote',
+      remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html'
+    },
+    puppeteer: puppeteerConfig
+  });
+
+  newClient.on('loading_screen', async (percent, message) => {
+    if (newClient.pupPage) {
+      try {
+        await newClient.pupPage.setRequestInterception(true);
+        newClient.pupPage.removeAllListeners('request');
+        newClient.pupPage.on('request', (req) => {
+          const resourceType = req.resourceType();
+          if (['image', 'stylesheet', 'font', 'media'].includes(resourceType)) {
+            req.abort();
+          } else {
+            req.continue();
+          }
+        });
+      } catch(e) {}
     }
   });
 
-  ['Cache', 'Code Cache', 'GPUCache'].forEach(folder => {
-    const p = path.join(sessionDir, folder);
-    if (fs.existsSync(p)) {
-      try { fs.rmSync(p, { recursive: true, force: true }); } catch(e) {}
-    }
-  });
-} catch(e) {}
+  return newClient;
+}
 
-const client = new Client({
-  authStrategy: new LocalAuth({ clientId: 'whatsapp-studio', dataPath: './.wwebjs_auth' }),
-  puppeteer: puppeteerConfig
-});
-
-client.on('loading_screen', async (percent, message) => {
-  if (client.pupPage) {
+async function destroyWhatsAppSession(sessionId, targetClient) {
+  if (targetClient) {
+    try { await targetClient.logout(); } catch(e) {}
+    try { await targetClient.destroy(); } catch(e) {}
+  }
+  const cleanSessionId = sessionId || 'default';
+  const sessionDataPath = path.join(__dirname, '.wwebjs_auth', `session-${cleanSessionId}`);
+  if (fs.existsSync(sessionDataPath)) {
     try {
-      await client.pupPage.setRequestInterception(true);
-      client.pupPage.removeAllListeners('request');
-      client.pupPage.on('request', (req) => {
-        const resourceType = req.resourceType();
-        if (['image', 'stylesheet', 'font', 'media'].includes(resourceType)) {
-          req.abort();
-        } else {
-          req.continue();
-        }
-      });
+      await fs.promises.rm(sessionDataPath, { recursive: true, force: true }).catch(() => {});
     } catch(e) {}
   }
-});
+}
+
+async function getGroupListForClient(targetClient) {
+  if (!targetClient) return [];
+  try {
+    const chats = await targetClient.getChats();
+    const groupChats = (chats || []).filter(c => c.isGroup);
+    return groupChats.map(g => ({
+      id: g.id._serialized,
+      groupJid: g.id._serialized,
+      name: g.name || g.formattedTitle || 'Unnamed Group',
+      memberCount: g.participants ? g.participants.length : 0,
+      count: g.participants ? g.participants.length : 0
+    }));
+  } catch(e) {
+    console.warn('⚠️ getGroupListForClient error:', e.message);
+    return [];
+  }
+}
+
+async function exportGroupContactsForClient(targetClient, targetGroup) {
+  const targetJid = targetGroup.groupJid || targetGroup.id;
+  let chat = null;
+  try {
+    chat = await targetClient.getChatById(targetJid);
+  } catch(e) {}
+
+  if (!chat || !chat.isGroup || !chat.participants) {
+    throw new Error('Group chat not found or has no participants');
+  }
+
+  const participants = chat.participants.map((p, idx) => {
+    const sId = p.id ? (p.id._serialized || p.id) : '';
+    const userNum = p.id ? (p.id.user || String(sId).split('@')[0]) : '';
+    const isAdminRole = Boolean(p.isAdmin || p.isSuperAdmin);
+
+    return {
+      index: idx + 1,
+      id: sId,
+      userJid: sId,
+      phone: userNum ? '+' + userNum : 'N/A',
+      phoneNumber: userNum ? '+' + userNum : 'N/A',
+      name: p.name || p.pushname || (p.contact ? (p.contact.name || p.contact.pushname) : 'N/A') || userNum || 'N/A',
+      isAdmin: isAdminRole ? 'Yes' : 'No',
+      role: isAdminRole ? 'Group Admin' : 'Member',
+      groupName: chat.name || targetGroup.name || 'Group'
+    };
+  });
+
+  return {
+    groupName: chat.name || targetGroup.name || 'Group',
+    finalRecords: participants
+  };
+}
+
+const client = createWhatsAppClient('default');
 
 function askQuestion(query) {
   const rl = readline.createInterface({
@@ -730,4 +812,11 @@ if (require.main === module) {
   client.initialize();
 }
 
-module.exports = { client, exportGroupContacts };
+module.exports = {
+  client,
+  exportGroupContacts,
+  createWhatsAppClient,
+  destroyWhatsAppSession,
+  getGroupListForClient,
+  exportGroupContactsForClient
+};

@@ -6,7 +6,12 @@ const fs = require('fs');
 const QRCode = require('qrcode');
 const createCsvWriter = require('csv-writer').createObjectCsvWriter;
 const ExcelJS = require('exceljs');
-const { client, exportGroupContacts } = require('./extractContacts');
+const {
+  createWhatsAppClient,
+  destroyWhatsAppSession,
+  getGroupListForClient,
+  exportGroupContactsForClient
+} = require('./extractContacts');
 
 const app = express();
 const server = http.createServer(app);
@@ -25,211 +30,106 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json());
 app.use(express.static(__dirname));
 
-let qrCodeDataUrl = null;
-let isAuthenticated = false;
-let groupList = [];
-let statusState = 'initializing'; // initializing | waiting_for_scan | authenticating | connected | disconnected
+// Multi-Tenant Session Storage (Map: socket.id -> { socketId, client, groups, statusState, qrCodeDataUrl, userPhone })
+const activeSessions = new Map();
 
-// Helper: Fetch all group chats with id, name, memberCount
-async function getGroupList() {
-  let chats = [];
-  try {
-    chats = await client.getChats();
-  } catch (e) {
-    console.warn('⚠️ Standard client.getChats() encountered an issue, executing Store evaluation fallback...');
+function getSession(req) {
+  const socketId = req.headers['x-socket-id'] || (req.query && req.query.socketId) || (req.body && req.body.socketId);
+  if (socketId && activeSessions.has(socketId)) {
+    return activeSessions.get(socketId);
   }
-
-  if ((!chats || chats.length === 0) && client.pupPage) {
-    try {
-      chats = await client.pupPage.evaluate(async () => {
-        let chatModels = [];
-        try {
-          if (window.require) {
-            const collections = window.require('WAWebCollections');
-            if (collections && collections.Chat && typeof collections.Chat.getModelsArray === 'function') {
-              chatModels = collections.Chat.getModelsArray();
-            }
-          }
-        } catch (e) {}
-
-        if (!chatModels || chatModels.length === 0) {
-          try {
-            if (window.Store && window.Store.Chat) {
-              if (typeof window.Store.Chat.getModelsArray === 'function') {
-                chatModels = window.Store.Chat.getModelsArray();
-              } else if (window.Store.Chat.models) {
-                chatModels = Array.from(window.Store.Chat.models);
-              } else if (window.Store.Chat._models) {
-                chatModels = Array.from(window.Store.Chat._models);
-              }
-            }
-          } catch (e) {}
-        }
-
-        if (!chatModels) chatModels = [];
-
-        return chatModels.map(c => {
-          const serializedId = (c.id && (c.id._serialized || (typeof c.id === 'string' ? c.id : ''))) || '';
-          const isGroupChat = Boolean(c.isGroup || (c.id && c.id.server === 'g.us') || serializedId.endsWith('@g.us'));
-          const pCount = (c.groupMetadata && c.groupMetadata.participants) ? c.groupMetadata.participants.length : (c.participantsCount || 0);
-
-          return {
-            id: serializedId,
-            groupJid: serializedId,
-            isGroup: isGroupChat,
-            name: c.formattedTitle || c.name || c.title || 'Unnamed Group',
-            memberCount: pCount
-          };
-        });
-      });
-    } catch(e) {}
+  if (activeSessions.size > 0) {
+    return activeSessions.values().next().value;
   }
-
-  return (chats || [])
-    .filter(c => Boolean(c.isGroup || (c.id && c.id.server === 'g.us') || (c.id && c.id._serialized && c.id._serialized.endsWith('@g.us')) || (c.groupJid && c.groupJid.endsWith('@g.us'))))
-    .map(g => {
-      const jid = g.id ? (typeof g.id === 'string' ? g.id : (g.id._serialized || g.groupJid || '')) : (g.groupJid || '');
-      const pCount = (g.participants ? g.participants.length : 0) || (g.groupMetadata ? (g.groupMetadata.participants ? g.groupMetadata.participants.length : 0) : 0) || g.memberCount || 0;
-      return {
-        id: jid,
-        name: g.name || g.formattedTitle || 'Unnamed Group',
-        memberCount: pCount
-      };
-    })
-    .filter(g => Boolean(g.id && g.id.endsWith('@g.us')));
+  return null;
 }
 
-// WhatsApp Client Event Listeners
-client.on('qr', async (qr) => {
-  console.log('📱 New QR code generated!');
-  qrCodeDataUrl = await QRCode.toDataURL(qr);
-  isAuthenticated = false;
-  statusState = 'waiting_for_scan';
-
-  io.emit('qr', qrCodeDataUrl);
-  io.emit('whatsapp_qr', { qr: qrCodeDataUrl });
-  io.emit('status', { status: statusState, message: 'Waiting for QR scan...' });
-});
-
-client.on('authenticated', () => {
-  console.log('🔒 Client authenticated!');
-  isAuthenticated = true;
-  statusState = 'authenticating';
-
-  const userPhone = (client.info && client.info.wid) ? client.info.wid.user : '';
-  io.emit('authenticated', { status: 'authenticated', userPhone, message: 'Authenticating...' });
-  io.emit('status', { status: statusState, message: 'Authenticating...' });
-});
-
-client.on('ready', async () => {
-  console.log('🚀 WhatsApp Client is authenticated & ready!');
-  isAuthenticated = true;
-  statusState = 'connected';
-  qrCodeDataUrl = null;
-
-  const userPhone = (client.info && client.info.wid) ? client.info.wid.user : '';
-  io.emit('ready', { userPhone, status: 'ready', message: 'Connected!' });
-  io.emit('whatsapp_ready', { status: 'ready', userPhone });
-  io.emit('status', { status: statusState, userPhone, message: 'Connected!' });
-
-  try {
-    groupList = await getGroupList();
-    console.log(`📋 Found ${groupList.length} group chats!`);
-    io.emit('whatsapp_groups', { groups: groupList });
-    io.emit('groups', groupList);
-    io.emit('groups_loaded', { groups: groupList });
-  } catch(e) {
-    console.warn('⚠️ Error fetching groups on ready:', e.message);
-  }
-});
-
-client.on('disconnected', (reason) => {
-  console.log('❌ WhatsApp Client disconnected:', reason);
-  isAuthenticated = false;
-  statusState = 'disconnected';
-  qrCodeDataUrl = null;
-  groupList = [];
-
-  io.emit('disconnected', { reason, message: 'Session disconnected' });
-  io.emit('status', { status: statusState, message: 'Disconnected' });
-});
-
-client.on('auth_failure', (msg) => {
-  console.error('❌ Auth Failure:', msg);
-  isAuthenticated = false;
-  statusState = 'auth_failure';
-  io.emit('status', { status: statusState, message: 'Authentication failed. Please rescan.' });
-});
-
-// Socket Connection Listener
+// Socket Connection Listener - Creates isolated WhatsApp client per socket connection
 io.on('connection', (socket) => {
-  const userPhone = (client.info && client.info.wid) ? client.info.wid.user : '';
-  socket.emit('status', { status: statusState, authenticated: isAuthenticated, userPhone });
+  console.log(`🔌 New client connected via Socket ID: ${socket.id}`);
 
-  if (qrCodeDataUrl && !isAuthenticated) {
-    socket.emit('qr', qrCodeDataUrl);
-    socket.emit('whatsapp_qr', { qr: qrCodeDataUrl });
-  }
+  const sessionObj = {
+    socketId: socket.id,
+    client: null,
+    groups: [],
+    statusState: 'waiting_for_scan',
+    qrCodeDataUrl: null,
+    userPhone: ''
+  };
+  activeSessions.set(socket.id, sessionObj);
 
-  if (isAuthenticated) {
-    socket.emit('ready', { userPhone, status: 'ready' });
+  const client = createWhatsAppClient(socket.id);
+  sessionObj.client = client;
+
+  client.on('qr', async (qr) => {
+    console.log(`📱 [${socket.id}] New QR code generated!`);
+    sessionObj.qrCodeDataUrl = await QRCode.toDataURL(qr);
+    sessionObj.statusState = 'waiting_for_scan';
+
+    socket.emit('qr', sessionObj.qrCodeDataUrl);
+    socket.emit('whatsapp_qr', { qr: sessionObj.qrCodeDataUrl });
+    socket.emit('status', { status: sessionObj.statusState, message: 'Waiting for QR scan...' });
+  });
+
+  client.on('authenticated', () => {
+    console.log(`🔒 [${socket.id}] Client authenticated!`);
+    sessionObj.statusState = 'authenticating';
+
+    const userPhone = (client.info && client.info.wid) ? client.info.wid.user : '';
+    sessionObj.userPhone = userPhone;
+    socket.emit('authenticated', { status: 'authenticated', userPhone, message: 'Authenticating...' });
+    socket.emit('status', { status: sessionObj.statusState, message: 'Authenticating...' });
+  });
+
+  client.on('ready', async () => {
+    console.log(`🚀 [${socket.id}] WhatsApp Client is authenticated & ready!`);
+    sessionObj.statusState = 'connected';
+    sessionObj.qrCodeDataUrl = null;
+
+    const userPhone = (client.info && client.info.wid) ? client.info.wid.user : '';
+    sessionObj.userPhone = userPhone;
+
+    socket.emit('ready', { userPhone, status: 'ready', message: 'Connected!' });
     socket.emit('whatsapp_ready', { status: 'ready', userPhone });
-    socket.emit('groups', groupList);
-    socket.emit('whatsapp_groups', { groups: groupList });
-  }
-});
+    socket.emit('status', { status: sessionObj.statusState, userPhone, message: 'Connected!' });
 
-// REST API Endpoints
-app.get('/health', (req, res) => {
-  res.json({
-    status: 'ok',
-    authenticated: isAuthenticated,
-    service: 'WhatsApp Contact Extractor Backend',
-    timestamp: new Date().toISOString()
-  });
-});
-
-app.get('/api/status', (req, res) => {
-  let userPhone = '';
-  try {
-    userPhone = (client && client.info && client.info.wid) ? client.info.wid.user : '';
-  } catch(e) {}
-  
-  res.status(200).json({
-    authenticated: isAuthenticated,
-    status: statusState || 'initializing',
-    qr: qrCodeDataUrl,
-    userPhone,
-    groupCount: groupList ? groupList.length : 0
-  });
-});
-
-app.post('/api/reset', async (req, res) => {
-  try {
-    console.log('🔄 Session reset API requested...');
-    isAuthenticated = false;
-    qrCodeDataUrl = null;
-    groupList = [];
-    statusState = 'waiting_for_scan';
-
-    if (client) {
-      try { await client.logout(); } catch(e) {}
-      try { await client.destroy(); } catch(e) {}
+    try {
+      sessionObj.groups = await getGroupListForClient(client);
+      console.log(`📋 [${socket.id}] Found ${sessionObj.groups.length} group chats!`);
+      socket.emit('whatsapp_groups', { groups: sessionObj.groups });
+      socket.emit('groups', sessionObj.groups);
+      socket.emit('groups_loaded', { groups: sessionObj.groups });
+    } catch(e) {
+      console.warn(`⚠️ [${socket.id}] Error fetching groups on ready:`, e.message);
     }
+  });
 
-    const authDir = path.join(__dirname, '.wwebjs_auth');
-    if (fs.existsSync(authDir)) {
-      await fs.promises.rm(authDir, { recursive: true, force: true }).catch(() => {});
+  client.on('disconnected', async (reason) => {
+    console.log(`❌ [${socket.id}] Client disconnected:`, reason);
+    sessionObj.statusState = 'disconnected';
+    socket.emit('disconnected', { reason, message: 'Session disconnected' });
+    await destroyWhatsAppSession(socket.id, client);
+    activeSessions.delete(socket.id);
+  });
+
+  client.on('auth_failure', (msg) => {
+    console.error(`❌ [${socket.id}] Auth Failure:`, msg);
+    sessionObj.statusState = 'auth_failure';
+    socket.emit('status', { status: sessionObj.statusState, message: 'Authentication failed. Please rescan.' });
+  });
+
+  client.initialize().catch(err => {
+    console.error(`⚠️ [${socket.id}] client.initialize() error:`, err ? (err.message || err) : 'Unknown error');
+  });
+
+  socket.on('disconnect', async () => {
+    console.log(`🔌 [${socket.id}] Socket connection closed. Cleaning up session...`);
+    const sess = activeSessions.get(socket.id);
+    if (sess) {
+      await destroyWhatsAppSession(socket.id, sess.client);
+      activeSessions.delete(socket.id);
     }
-
-    setTimeout(() => {
-      client.initialize().catch(err => console.error('⚠️ Reset re-init error:', err));
-    }, 2000);
-
-    res.json({ success: true, message: 'Session reset. Generating new QR code...' });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  });
 });
 
 process.on('uncaughtException', (err) => {
@@ -240,99 +140,113 @@ process.on('unhandledRejection', (reason) => {
   console.error('⚠️ Server Unhandled Rejection (safely caught):', reason);
 });
 
+// REST API Endpoints
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    activeSessionsCount: activeSessions.size,
+    service: 'WhatsApp Contact Extractor Multi-Tenant Backend',
+    timestamp: new Date().toISOString()
+  });
+});
+
+app.get('/api/status', (req, res) => {
+  const session = getSession(req);
+  if (!session) {
+    return res.status(200).json({
+      authenticated: false,
+      status: 'waiting_for_scan',
+      qr: null,
+      userPhone: '',
+      groupCount: 0
+    });
+  }
+  const userPhone = session.userPhone || (session.client && session.client.info && session.client.info.wid ? session.client.info.wid.user : '');
+  res.status(200).json({
+    authenticated: session.statusState === 'connected',
+    status: session.statusState,
+    qr: session.qrCodeDataUrl,
+    userPhone,
+    groupCount: session.groups ? session.groups.length : 0
+  });
+});
+
+app.post('/api/reset', async (req, res) => {
+  const socketId = req.headers['x-socket-id'] || req.body.socketId;
+  console.log(`🔄 Session reset API requested for socketId: ${socketId}`);
+
+  if (socketId && activeSessions.has(socketId)) {
+    const session = activeSessions.get(socketId);
+    await destroyWhatsAppSession(socketId, session.client);
+    activeSessions.delete(socketId);
+  }
+  res.json({ success: true, message: 'Session reset. Generating new QR code...' });
+});
+
 // 1. GET /api/groups Endpoint
 app.get('/api/groups', async (req, res) => {
-  if (!isAuthenticated) {
+  const session = getSession(req);
+  if (!session || !session.client || session.statusState !== 'connected') {
     return res.status(401).json({ error: 'WhatsApp is not authenticated. Scan QR code first.' });
   }
   try {
-    groupList = await getGroupList();
-    res.json({ groups: groupList });
+    session.groups = await getGroupListForClient(session.client);
+    res.json({ groups: session.groups });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// 2. POST /api/export Endpoint - Streams downloadable CSV file attachment
+// 2. POST /api/export Endpoint - CSV Export
 app.post('/api/export', async (req, res) => {
   const { groupId, groupJid, name, exportAll } = req.body;
-  if (!isAuthenticated) {
+  const session = getSession(req);
+
+  if (!session || !session.client || session.statusState !== 'connected') {
     return res.status(401).json({ error: 'WhatsApp is not authenticated. Scan QR code first.' });
   }
 
   try {
+    let recordsToExport = [];
+
     if (exportAll) {
-      console.log(`🌐 API Request: Exporting ALL ${groupList.length} groups...`);
-      io.emit('export_progress', { message: `Starting export for all ${groupList.length} groups...`, current: 0, total: groupList.length });
-
-      let allRecords = [];
-      const currentGroups = groupList.length > 0 ? groupList : await getGroupList();
-
-      for (let i = 0; i < currentGroups.length; i++) {
-        const g = currentGroups[i];
-        io.emit('export_progress', { message: `Extracting "${g.name}" (${i + 1}/${currentGroups.length})...`, current: i + 1, total: currentGroups.length });
-        const result = await exportGroupContacts({ groupJid: g.id || g.groupJid, name: g.name });
-        if (result && result.finalRecords) {
-          result.finalRecords.forEach(r => {
-            allRecords.push({
-              groupName: g.name,
-              phoneNumber: r.phoneNumber || 'N/A',
-              name: r.name || 'N/A',
-              isAdmin: r.isAdmin || 'No',
-              userJid: r.userJid || ''
-            });
-          });
-        }
+      const currentGroups = (session.groups && session.groups.length > 0) ? session.groups : await getGroupListForClient(session.client);
+      for (const g of currentGroups) {
+        try {
+          const resData = await exportGroupContactsForClient(session.client, g);
+          recordsToExport.push(...resData.finalRecords);
+        } catch(e) {}
       }
-
-      const timestamp = Date.now();
-      const csvFilename = `whatsapp_all_groups_contacts_${timestamp}.csv`;
-      const csvFilePath = path.join(__dirname, csvFilename);
-
-      const csvWriter = createCsvWriter({
-        path: csvFilePath,
-        header: [
-          { id: 'groupName', title: 'GROUP_NAME' },
-          { id: 'phoneNumber', title: 'PHONE_NUMBER' },
-          { id: 'name', title: 'NAME' },
-          { id: 'isAdmin', title: 'IS_ADMIN' },
-          { id: 'userJid', title: 'USER_JID' }
-        ]
-      });
-
-      await csvWriter.writeRecords(allRecords);
-
-      res.setHeader('Content-Type', 'text/csv');
-      res.setHeader('Content-Disposition', `attachment; filename="${csvFilename}"`);
-      return res.sendFile(csvFilePath);
+    } else {
+      const targetJid = groupId || groupJid;
+      const resData = await exportGroupContactsForClient(session.client, { groupJid: targetJid, name });
+      recordsToExport = resData.finalRecords;
     }
 
-    const targetJid = groupId || groupJid;
-    if (!targetJid) {
-      return res.status(400).json({ error: 'Group ID (groupId or groupJid) is required.' });
-    }
+    const safeName = exportAll ? 'all_groups' : (recordsToExport[0]?.groupName ? recordsToExport[0].groupName.replace(/[^a-zA-Z0-9_\-]/g, '_') : 'group');
+    const filename = `whatsapp_${safeName}_contacts_${Date.now()}.csv`;
 
-    const matchedGroup = groupList.find(g => g.id === targetJid) || { groupJid: targetJid, name: name || 'Group' };
-    console.log(`🌐 API Request: Extracting contacts for group "${matchedGroup.name}" (${targetJid})`);
-    
-    io.emit('export_progress', { message: `Extracting "${matchedGroup.name}"...` });
-    const result = await exportGroupContacts({ groupJid: targetJid, name: matchedGroup.name });
-    
-    const csvFilePath = path.join(__dirname, result.csvFilename);
     res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', `attachment; filename="${result.csvFilename}"`);
-    return res.sendFile(csvFilePath);
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
 
+    const csvRows = ['#,Name,Phone Number,Role,Group Name'];
+    recordsToExport.forEach(r => {
+      csvRows.push(`${r.index},"${(r.name || '').replace(/"/g, '""')}","${r.phoneNumber || r.phone}","${r.role}","${(r.groupName || '').replace(/"/g, '""')}"`);
+    });
+
+    res.send(csvRows.join('\n'));
   } catch (err) {
-    console.error('❌ API Export error:', err);
+    console.error('❌ CSV export error:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// 3. POST /api/export-excel Endpoint - Streams styled downloadable .xlsx file attachment
+// 3. POST /api/export-excel Endpoint - Excel Export
 app.post('/api/export-excel', async (req, res) => {
   const { groupId, groupJid, name, exportAll } = req.body;
-  if (!isAuthenticated) {
+  const session = getSession(req);
+
+  if (!session || !session.client || session.statusState !== 'connected') {
     return res.status(401).json({ error: 'WhatsApp is not authenticated. Scan QR code first.' });
   }
 
@@ -349,24 +263,23 @@ app.post('/api/export-excel', async (req, res) => {
       { header: '#', key: 'index', width: 8 },
       { header: 'Name', key: 'name', width: 28 },
       { header: 'Phone Number', key: 'phoneNumber', width: 22 },
-      { header: 'Role', key: 'role', width: 14 },
+      { header: 'Role', key: 'role', width: 16 },
       { header: 'Group Name', key: 'groupName', width: 30 }
     ];
 
-    // Style Header Row
     const headerRow = worksheet.getRow(1);
     headerRow.height = 28;
     headerRow.eachCell((cell) => {
       cell.fill = {
         type: 'pattern',
         pattern: 'solid',
-        fgColor: { argb: 'FF128C7E' } // WhatsApp Teal Green #128C7E
+        fgColor: { argb: 'FF128C7E' }
       };
       cell.font = {
         name: 'Arial',
         size: 11,
         bold: true,
-        color: { argb: 'FFFFFFFF' } // White text
+        color: { argb: 'FFFFFFFF' }
       };
       cell.alignment = { vertical: 'middle', horizontal: 'center' };
       cell.border = {
@@ -381,51 +294,25 @@ app.post('/api/export-excel', async (req, res) => {
     const targetJid = groupId || groupJid;
 
     if (exportAll) {
-      console.log(`🌐 API Request (Excel): Exporting ALL ${groupList.length} groups...`);
-      io.emit('export_progress', { message: `Starting Excel export for all ${groupList.length} groups...` });
-      const currentGroups = groupList.length > 0 ? groupList : await getGroupList();
-
-      for (let i = 0; i < currentGroups.length; i++) {
-        const g = currentGroups[i];
-        io.emit('export_progress', { message: `Extracting "${g.name}" (${i + 1}/${currentGroups.length})...`, current: i + 1, total: currentGroups.length });
-        const result = await exportGroupContacts({ groupJid: g.id || g.groupJid, name: g.name });
-        if (result && result.finalRecords) {
-          result.finalRecords.forEach(r => {
-            recordsToExport.push({
-              name: r.name || 'N/A',
-              phoneNumber: r.phoneNumber || 'N/A',
-              role: r.isAdmin === 'Yes' ? 'Admin' : 'Member',
-              groupName: g.name
-            });
-          });
-        }
+      const currentGroups = (session.groups && session.groups.length > 0) ? session.groups : await getGroupListForClient(session.client);
+      for (const g of currentGroups) {
+        try {
+          const resData = await exportGroupContactsForClient(session.client, g);
+          recordsToExport.push(...resData.finalRecords);
+        } catch(e) {}
       }
     } else if (targetJid) {
-      const matchedGroup = groupList.find(g => g.id === targetJid) || { groupJid: targetJid, name: name || 'Group' };
-      console.log(`🌐 API Request (Excel): Extracting contacts for group "${matchedGroup.name}" (${targetJid})`);
-      io.emit('export_progress', { message: `Extracting "${matchedGroup.name}" for Excel...` });
-
-      const result = await exportGroupContacts({ groupJid: targetJid, name: matchedGroup.name });
-      if (result && result.finalRecords) {
-        result.finalRecords.forEach(r => {
-          recordsToExport.push({
-            name: r.name || 'N/A',
-            phoneNumber: r.phoneNumber || 'N/A',
-            role: r.isAdmin === 'Yes' ? 'Admin' : 'Member',
-            groupName: matchedGroup.name
-          });
-        });
-      }
+      const resData = await exportGroupContactsForClient(session.client, { groupJid: targetJid, name });
+      recordsToExport = resData.finalRecords;
     } else {
       return res.status(400).json({ error: 'Group ID or exportAll: true is required.' });
     }
 
-    // Add Data Rows & Formatting
     recordsToExport.forEach((rec, idx) => {
       const row = worksheet.addRow({
         index: idx + 1,
         name: rec.name,
-        phoneNumber: rec.phoneNumber,
+        phoneNumber: rec.phoneNumber || rec.phone,
         role: rec.role,
         groupName: rec.groupName
       });
@@ -441,13 +328,12 @@ app.post('/api/export-excel', async (req, res) => {
           right: { style: 'thin', color: { argb: 'FFE2E8F0' } }
         };
 
-        if (colNumber === 4 && rec.role === 'Admin') {
+        if (colNumber === 4 && (rec.role === 'Group Admin' || rec.role === 'Admin')) {
           cell.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FF10B981' } };
         }
       });
     });
 
-    // Auto Column Width Calculation
     worksheet.columns.forEach(column => {
       let maxLen = 0;
       column.eachCell({ includeEmpty: true }, cell => {
@@ -465,19 +351,19 @@ app.post('/api/export-excel', async (req, res) => {
 
     await workbook.xlsx.write(res);
     res.end();
-
   } catch (err) {
-    console.error('❌ API Excel Export error:', err);
+    console.error('❌ Excel export error:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// JSON extraction endpoint for internal dashboard rendering
+// JSON extraction endpoint for in-dashboard table preview
 app.post('/api/extract', async (req, res) => {
   const { groupJid, groupId, name } = req.body;
   const targetJid = groupId || groupJid;
+  const session = getSession(req);
 
-  if (!isAuthenticated) {
+  if (!session || !session.client || session.statusState !== 'connected') {
     return res.status(401).json({ error: 'WhatsApp is not authenticated. Scan QR code first.' });
   }
   if (!targetJid) {
@@ -485,60 +371,16 @@ app.post('/api/extract', async (req, res) => {
   }
 
   try {
-    console.log(`🌐 API Request: Extracting contacts for group "${name || targetJid}" (${targetJid})`);
-    
-    let participants = [];
-    let groupName = name || 'Group';
-
-    try {
-      const chat = await client.getChatById(targetJid);
-      if (chat && chat.isGroup && chat.participants) {
-        groupName = chat.name || groupName;
-        participants = chat.participants.map((p, idx) => {
-          const sId = p.id ? (p.id._serialized || p.id) : '';
-          const userNum = p.id ? (p.id.user || String(sId).split('@')[0]) : '';
-          const isAdminRole = Boolean(p.isAdmin || p.isSuperAdmin);
-
-          return {
-            index: idx + 1,
-            id: sId,
-            userJid: sId,
-            phone: userNum ? '+' + userNum : 'N/A',
-            phoneNumber: userNum ? '+' + userNum : 'N/A',
-            name: p.name || p.pushname || (p.contact ? (p.contact.name || p.contact.pushname) : 'N/A') || userNum || 'N/A',
-            isAdmin: isAdminRole ? 'Yes' : 'No',
-            role: isAdminRole ? 'Group Admin' : 'Member'
-          };
-        });
-      }
-    } catch (e) {
-      console.warn('⚠️ client.getChatById fallback to exportGroupContacts:', e.message);
-    }
-
-    if (!participants || participants.length === 0) {
-      const targetGroup = { groupJid: targetJid, name: groupName };
-      const result = await exportGroupContacts(targetGroup);
-      if (result && result.finalRecords) {
-        participants = result.finalRecords.map((r, idx) => ({
-          index: idx + 1,
-          id: r.userJid || '',
-          userJid: r.userJid || '',
-          phone: r.phoneNumber || 'N/A',
-          phoneNumber: r.phoneNumber || 'N/A',
-          name: r.name || 'N/A',
-          isAdmin: r.isAdmin || 'No',
-          role: r.isAdmin === 'Yes' ? 'Group Admin' : 'Member'
-        }));
-      }
-    }
+    console.log(`🌐 API Request [${session.socketId}]: Extracting contacts for group "${name || targetJid}" (${targetJid})`);
+    const result = await exportGroupContactsForClient(session.client, { groupJid: targetJid, name });
 
     res.json({
       success: true,
-      groupName: groupName,
-      totalMembers: participants.length,
-      count: participants.length,
-      contacts: participants,
-      participants: participants
+      groupName: result.groupName,
+      totalMembers: result.finalRecords.length,
+      count: result.finalRecords.length,
+      contacts: result.finalRecords,
+      participants: result.finalRecords
     });
   } catch (err) {
     console.error('❌ Group extraction error:', err);
@@ -559,16 +401,9 @@ app.get('/download/:filename', (req, res) => {
 function startServer(portToTry) {
   server.listen(portToTry, '0.0.0.0', () => {
     console.log(`==================================================`);
-    console.log(`🚀 WhatsApp Contact Studio running on 0.0.0.0:${portToTry}`);
-    console.log(`🌐 Accessible via Render Cloud Proxy`);
+    console.log(`🚀 Multi-Tenant WhatsApp Studio running on 0.0.0.0:${portToTry}`);
+    console.log(`🌐 Isolated sessions initialized per Socket ID connection`);
     console.log(`==================================================`);
-    
-    setTimeout(() => {
-      console.log('🔄 Initializing WhatsApp Web Client in background...');
-      client.initialize().catch(err => {
-        console.error('⚠️ WhatsApp client.initialize() warning:', err ? (err.message || err) : 'Unknown error');
-      });
-    }, 1000);
   }).on('error', (err) => {
     if (err.code === 'EADDRINUSE') {
       console.warn(`⚠️ Port ${portToTry} is occupied, trying port ${portToTry + 1}...`);
