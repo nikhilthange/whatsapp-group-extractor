@@ -851,6 +851,8 @@
   <script>
     let fetchedGroupsList = [];
     let rawContacts = [];
+    let currentFilter = 'all';
+    let searchQuery = '';
 
     // Client-Side Persistent Session ID via localStorage
     let waSessionId = localStorage.getItem('wa_session_id');
