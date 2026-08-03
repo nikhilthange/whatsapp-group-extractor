@@ -122,23 +122,6 @@ function createWhatsAppClient(sessionId) {
     puppeteer: puppeteerConfig
   });
 
-  newClient.on('loading_screen', async (percent, message) => {
-    if (newClient.pupPage) {
-      try {
-        await newClient.pupPage.setRequestInterception(true);
-        newClient.pupPage.removeAllListeners('request');
-        newClient.pupPage.on('request', (req) => {
-          const resourceType = req.resourceType();
-          if (['image', 'stylesheet', 'font', 'media'].includes(resourceType)) {
-            req.abort();
-          } else {
-            req.continue();
-          }
-        });
-      } catch(e) {}
-    }
-  });
-
   return newClient;
 }
 
