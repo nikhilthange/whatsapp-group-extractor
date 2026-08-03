@@ -236,20 +236,89 @@ async function getGroupListForClient(targetClient) {
 }
 
 async function exportGroupContactsForClient(targetClient, targetGroup) {
-  const targetJid = targetGroup.groupJid || targetGroup.id;
+  const targetJid = (typeof targetGroup === 'string')
+    ? targetGroup
+    : (targetGroup.groupJid || targetGroup.id || (targetGroup.id && targetGroup.id._serialized ? targetGroup.id._serialized : ''));
+
+  if (!targetJid) {
+    throw new Error('Invalid Group JID provided');
+  }
+
   let chat = null;
   try {
     chat = await targetClient.getChatById(targetJid);
   } catch(e) {}
 
-  if (!chat || !chat.isGroup || !chat.participants) {
-    throw new Error('Group chat not found or has no participants');
+  let participantsRaw = (chat && chat.participants) ? chat.participants : [];
+  let groupTitle = (chat && chat.name) || (targetGroup && targetGroup.name) || 'WhatsApp Group';
+
+  // In-Browser Store Fallback if getChatById failed or participants is empty
+  if ((!participantsRaw || participantsRaw.length === 0) && targetClient.pupPage) {
+    try {
+      const evalResult = await targetClient.pupPage.evaluate((gJid) => {
+        let chatModel = null;
+        try {
+          if (window.require) {
+            const collections = window.require('WAWebCollections');
+            if (collections && collections.Chat && typeof collections.Chat.get === 'function') {
+              chatModel = collections.Chat.get(gJid);
+            }
+          }
+        } catch(e) {}
+
+        if (!chatModel && window.Store && window.Store.Chat) {
+          try {
+            if (typeof window.Store.Chat.get === 'function') {
+              chatModel = window.Store.Chat.get(gJid);
+            } else if (window.Store.Chat.models) {
+              const models = Array.from(window.Store.Chat.models || window.Store.Chat._models || []);
+              chatModel = models.find(m => {
+                const mid = m.id ? (typeof m.id === 'string' ? m.id : m.id._serialized || m.id.$1 || m.id.user || '') : '';
+                return mid === gJid || mid.includes(gJid) || gJid.includes(mid);
+              });
+            }
+          } catch(e) {}
+        }
+
+        if (!chatModel) return null;
+
+        const title = chatModel.formattedTitle || chatModel.name || chatModel.title || 'WhatsApp Group';
+        let parts = [];
+        if (chatModel.groupMetadata && chatModel.groupMetadata.participants) {
+          parts = Array.from(chatModel.groupMetadata.participants);
+        } else if (chatModel.participants) {
+          parts = Array.from(chatModel.participants);
+        }
+
+        return {
+          title: title,
+          participants: parts.map(p => ({
+            id: p.id ? (typeof p.id === 'string' ? p.id : (p.id._serialized || p.id.$1 || p.id.user || '')) : '',
+            isAdmin: Boolean(p.isAdmin || p.isSuperAdmin || p.role === 'admin' || p.role === 'superadmin'),
+            name: p.name || p.pushname || (p.contact ? (p.contact.name || p.contact.pushname) : '')
+          }))
+        };
+      }, targetJid);
+
+      if (evalResult) {
+        if (evalResult.title) groupTitle = evalResult.title;
+        if (evalResult.participants && evalResult.participants.length > 0) {
+          participantsRaw = evalResult.participants;
+        }
+      }
+    } catch(e) {
+      console.warn('Page eval for group contacts fallback error:', e.message);
+    }
   }
 
-  const participants = chat.participants.map((p, idx) => {
-    const sId = p.id ? (p.id._serialized || p.id) : '';
-    const userNum = p.id ? (p.id.user || String(sId).split('@')[0]) : '';
-    const isAdminRole = Boolean(p.isAdmin || p.isSuperAdmin);
+  if (!participantsRaw || participantsRaw.length === 0) {
+    throw new Error(`Group chat (${groupTitle}) participants could not be loaded from WhatsApp Web.`);
+  }
+
+  const finalRecords = participantsRaw.map((p, idx) => {
+    const sId = p.id ? (typeof p.id === 'string' ? p.id : (p.id._serialized || p.id)) : '';
+    const userNum = p.id ? (typeof p.id === 'string' ? p.id.split('@')[0] : (p.id.user || String(sId).split('@')[0])) : '';
+    const isAdminRole = Boolean(p.isAdmin || p.isSuperAdmin || p.role === 'admin' || p.role === 'superadmin');
 
     return {
       index: idx + 1,
@@ -257,16 +326,16 @@ async function exportGroupContactsForClient(targetClient, targetGroup) {
       userJid: sId,
       phone: userNum ? '+' + userNum : 'N/A',
       phoneNumber: userNum ? '+' + userNum : 'N/A',
-      name: p.name || p.pushname || (p.contact ? (p.contact.name || p.contact.pushname) : 'N/A') || userNum || 'N/A',
+      name: p.name || p.pushname || (p.contact ? (p.contact.name || p.contact.pushname) : 'N/A') || (userNum ? '+' + userNum : 'N/A'),
       isAdmin: isAdminRole ? 'Yes' : 'No',
       role: isAdminRole ? 'Group Admin' : 'Member',
-      groupName: chat.name || targetGroup.name || 'Group'
+      groupName: groupTitle
     };
   });
 
   return {
-    groupName: chat.name || targetGroup.name || 'Group',
-    finalRecords: participants
+    groupName: groupTitle,
+    finalRecords: finalRecords
   };
 }
 
