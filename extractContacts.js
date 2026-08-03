@@ -70,9 +70,7 @@ const puppeteerConfig = {
     '--disable-renderer-backgrounding',
     '--disable-sync',
     '--force-color-profile=srgb',
-    '--metrics-recording-only',
-    '--single-process',
-    '--js-flags="--max-old-space-size=180"'
+    '--metrics-recording-only'
   ]
 };
 

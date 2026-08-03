@@ -471,13 +471,27 @@ app.get('/download/:filename', (req, res) => {
   }
 });
 
+process.on('uncaughtException', (err) => {
+  console.error('⚠️ Server Uncaught Exception (safely caught):', err.message || err);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('⚠️ Server Unhandled Rejection (safely caught):', reason);
+});
+
 function startServer(portToTry) {
   server.listen(portToTry, () => {
     console.log(`==================================================`);
     console.log(`🚀 WhatsApp Contact Studio running on port ${portToTry}`);
     console.log(`🌐 Open http://localhost:${portToTry} to access Web App`);
     console.log(`==================================================`);
-    client.initialize();
+    try {
+      client.initialize().catch(err => {
+        console.error('⚠️ WhatsApp client.initialize() warning:', err.message);
+      });
+    } catch(e) {
+      console.error('⚠️ WhatsApp client initialization error:', e.message);
+    }
   }).on('error', (err) => {
     if (err.code === 'EADDRINUSE') {
       console.warn(`⚠️ Port ${portToTry} is occupied, trying port ${portToTry + 1}...`);
