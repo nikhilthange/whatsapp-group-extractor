@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: whatsapp-group-extractor
+    env: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    envVars:
+      - key: PORT
+        value: 3000
+      - key: HEADLESS
+        value: "true"
+      - key: PUPPETEER_SKIP_CHROMIUM_DOWNLOAD
+        value: "true"
+      - key: PUPPETEER_EXECUTABLE_PATH
+        value: "/usr/bin/chromium"
