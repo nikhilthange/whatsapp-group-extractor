@@ -915,6 +915,16 @@
           document.getElementById('qrBox').style.display = 'none';
         });
 
+        // 6. Server Busy / RAM Guard Limit Event
+        socket.on('server_busy', (data) => {
+          updateHeaderStatus('Server Busy', '#ef4444');
+          document.getElementById('loadingBox').style.display = 'block';
+          document.getElementById('loadingBox').querySelector('h3').innerText = '⚠️ ' + (data && data.message ? data.message : 'Server limit reached.');
+          document.getElementById('qrBox').style.display = 'none';
+          document.getElementById('groupSelectBox').style.display = 'none';
+          showToast(data && data.message ? data.message : 'Server resource limit reached. Try again later.');
+        });
+
         socket.on('export_progress', (data) => {
           if (data && data.message) {
             document.getElementById('extractLoading').style.display = 'block';

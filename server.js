@@ -28,25 +28,31 @@ const io = new Server(server, {
 });
 
 const PORT = process.env.PORT || 3000;
+const MAX_ACTIVE_SESSIONS = parseInt(process.env.MAX_ACTIVE_SESSIONS || '5', 10);
+const IDLE_SESSION_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes idle session cleanup
 
 app.use(express.json());
 app.use(express.static(__dirname));
 
-// Persistent Multi-Tenant Session Storage (Map: sessionId -> { sessionId, socket, client, groups, statusState, qrCodeDataUrl, userPhone })
+// Persistent Multi-Tenant Session Storage (Map: sessionId -> { sessionId, socket, client, groups, statusState, qrCodeDataUrl, userPhone, lastActiveTime, disconnectTimeout })
 const activeSessions = new Map();
 
 function getSession(req) {
   const sessionId = req.headers['x-session-id'] || (req.query && req.query.sessionId) || (req.body && req.body.sessionId) || req.headers['x-socket-id'];
   if (sessionId && activeSessions.has(sessionId)) {
-    return activeSessions.get(sessionId);
+    const session = activeSessions.get(sessionId);
+    session.lastActiveTime = Date.now();
+    return session;
   }
   if (activeSessions.size > 0) {
-    return activeSessions.values().next().value;
+    const session = activeSessions.values().next().value;
+    session.lastActiveTime = Date.now();
+    return session;
   }
   return null;
 }
 
-// Socket Connection Listener - Re-uses or initializes session by persistent sessionId
+// Socket Connection Listener - Handles reconnects, idle 10m timers, and RAM session caps
 io.on('connection', (socket) => {
   const sessionId = (socket.handshake.auth && socket.handshake.auth.sessionId) ||
                     (socket.handshake.query && socket.handshake.query.sessionId) ||
@@ -57,7 +63,12 @@ io.on('connection', (socket) => {
   let sessionObj = activeSessions.get(sessionId);
 
   if (sessionObj) {
-    console.log(`🔄 Re-attaching socket ${socket.id} to existing session: ${sessionId} (Status: ${sessionObj.statusState})`);
+    if (sessionObj.disconnectTimeout) {
+      console.log(`⏱️ Cleared 10-minute idle disconnect timer for reconnected session: ${sessionId}`);
+      clearTimeout(sessionObj.disconnectTimeout);
+      sessionObj.disconnectTimeout = null;
+    }
+    sessionObj.lastActiveTime = Date.now();
     sessionObj.socket = socket;
 
     socket.emit('status', {
@@ -81,6 +92,15 @@ io.on('connection', (socket) => {
       }
     }
   } else {
+    // RAM Guard: Enforce maximum active session cap
+    if (activeSessions.size >= MAX_ACTIVE_SESSIONS) {
+      console.warn(`⚠️ [RAM Guard] Max active sessions limit reached (${MAX_ACTIVE_SESSIONS}). Rejecting new session: ${sessionId}`);
+      socket.emit('server_busy', {
+        message: 'Server resource limit reached. Please try again in a few minutes.'
+      });
+      return;
+    }
+
     sessionObj = {
       sessionId: sessionId,
       socket: socket,
@@ -88,7 +108,9 @@ io.on('connection', (socket) => {
       groups: [],
       statusState: 'waiting_for_scan',
       qrCodeDataUrl: null,
-      userPhone: ''
+      userPhone: '',
+      lastActiveTime: Date.now(),
+      disconnectTimeout: null
     };
     activeSessions.set(sessionId, sessionObj);
 
@@ -99,6 +121,7 @@ io.on('connection', (socket) => {
       console.log(`📱 [${sessionId}] New QR code generated!`);
       sessionObj.qrCodeDataUrl = await QRCode.toDataURL(qr);
       sessionObj.statusState = 'waiting_for_scan';
+      sessionObj.lastActiveTime = Date.now();
 
       if (sessionObj.socket) {
         sessionObj.socket.emit('qr', sessionObj.qrCodeDataUrl);
@@ -110,6 +133,7 @@ io.on('connection', (socket) => {
     client.on('authenticated', () => {
       console.log(`🔒 [${sessionId}] Client authenticated!`);
       sessionObj.statusState = 'authenticating';
+      sessionObj.lastActiveTime = Date.now();
 
       const userPhone = (client.info && client.info.wid) ? client.info.wid.user : '';
       sessionObj.userPhone = userPhone;
@@ -123,6 +147,7 @@ io.on('connection', (socket) => {
       console.log(`🚀 [${sessionId}] WhatsApp Client is authenticated & ready!`);
       sessionObj.statusState = 'connected';
       sessionObj.qrCodeDataUrl = null;
+      sessionObj.lastActiveTime = Date.now();
 
       const userPhone = (client.info && client.info.wid) ? client.info.wid.user : '';
       sessionObj.userPhone = userPhone;
@@ -152,6 +177,7 @@ io.on('connection', (socket) => {
       if (sessionObj.socket) {
         sessionObj.socket.emit('disconnected', { reason, message: 'Session disconnected' });
       }
+      if (sessionObj.disconnectTimeout) clearTimeout(sessionObj.disconnectTimeout);
       await destroyWhatsAppSession(sessionId, client);
       activeSessions.delete(sessionId);
     });
@@ -170,10 +196,20 @@ io.on('connection', (socket) => {
   }
 
   socket.on('disconnect', () => {
-    console.log(`🔌 Socket disconnected ID: ${socket.id} (Session ID: ${sessionId}). Keeping WhatsApp session alive...`);
+    console.log(`🔌 Socket disconnected ID: ${socket.id} (Session ID: ${sessionId}). Starting 10-minute idle timer...`);
     if (sessionObj.socket && sessionObj.socket.id === socket.id) {
       sessionObj.socket = null;
     }
+
+    sessionObj.lastActiveTime = Date.now();
+
+    if (sessionObj.disconnectTimeout) clearTimeout(sessionObj.disconnectTimeout);
+
+    sessionObj.disconnectTimeout = setTimeout(async () => {
+      console.log(`🗑️ [Garbage Collector] Session ${sessionId} idle for 10 minutes without socket connection. Destroying Chrome & purging storage...`);
+      await destroyWhatsAppSession(sessionId, sessionObj.client);
+      activeSessions.delete(sessionId);
+    }, IDLE_SESSION_TIMEOUT_MS);
   });
 });
 
@@ -190,6 +226,7 @@ app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
     activeSessionsCount: activeSessions.size,
+    maxSessionsAllowed: MAX_ACTIVE_SESSIONS,
     service: 'WhatsApp Contact Extractor Persistent Multi-Tenant Backend',
     timestamp: new Date().toISOString()
   });
@@ -222,6 +259,7 @@ app.post('/api/reset', async (req, res) => {
 
   if (sessionId && activeSessions.has(sessionId)) {
     const session = activeSessions.get(sessionId);
+    if (session.disconnectTimeout) clearTimeout(session.disconnectTimeout);
     await destroyWhatsAppSession(sessionId, session.client);
     activeSessions.delete(sessionId);
   }
@@ -255,7 +293,7 @@ app.post('/api/export', async (req, res) => {
     let recordsToExport = [];
 
     if (exportAll) {
-      const currentGroups = (session.groups && session.groups.length > 0) ? session.groups : await getGroupListForClient(session.client);
+      const currentGroups = (session.groups && session.groups.length > 0) ? session.groups : await getGroupsWithRetry(session.client, 3, 2000);
       for (const g of currentGroups) {
         try {
           const resData = await exportGroupContactsForClient(session.client, g);
@@ -339,7 +377,7 @@ app.post('/api/export-excel', async (req, res) => {
     const targetJid = groupId || groupJid;
 
     if (exportAll) {
-      const currentGroups = (session.groups && session.groups.length > 0) ? session.groups : await getGroupListForClient(session.client);
+      const currentGroups = (session.groups && session.groups.length > 0) ? session.groups : await getGroupsWithRetry(session.client, 3, 2000);
       for (const g of currentGroups) {
         try {
           const resData = await exportGroupContactsForClient(session.client, g);
@@ -446,8 +484,9 @@ app.get('/download/:filename', (req, res) => {
 function startServer(portToTry) {
   server.listen(portToTry, '0.0.0.0', () => {
     console.log(`==================================================`);
-    console.log(`🚀 Persistent Multi-Tenant WhatsApp Studio running on 0.0.0.0:${portToTry}`);
-    console.log(`🌐 Sessions persisted per wa_session_id localStorage key`);
+    console.log(`🚀 Hardened WhatsApp Studio running on 0.0.0.0:${portToTry}`);
+    console.log(`🛡️ RAM Guard: Max ${MAX_ACTIVE_SESSIONS} concurrent active sessions allowed`);
+    console.log(`⏱️ Garbage Collector: 10-minute idle disconnect cleanup active`);
     console.log(`==================================================`);
   }).on('error', (err) => {
     if (err.code === 'EADDRINUSE') {
