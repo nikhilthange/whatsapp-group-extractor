@@ -1376,6 +1376,7 @@
 
     window.addEventListener('DOMContentLoaded', () => {
       checkInitialStatus();
+      setInterval(checkInitialStatus, 3000);
 
       const urlParams = new URLSearchParams(window.location.search);
       if (urlParams.get('demo') === 'true') {

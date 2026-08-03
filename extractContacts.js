@@ -54,7 +54,25 @@ const puppeteerConfig = {
     '--no-first-run',
     '--no-zygote',
     '--disable-gpu',
-    '--start-maximized'
+    '--disable-extensions',
+    '--disable-component-update',
+    '--no-default-browser-check',
+    '--disable-background-networking',
+    '--disable-background-timer-throttling',
+    '--disable-backgrounding-occluded-windows',
+    '--disable-breakpad',
+    '--disable-client-side-phishing-detection',
+    '--disable-default-apps',
+    '--disable-hang-monitor',
+    '--disable-ipc-flooding-protection',
+    '--disable-popup-blocking',
+    '--disable-prompt-on-repost',
+    '--disable-renderer-backgrounding',
+    '--disable-sync',
+    '--force-color-profile=srgb',
+    '--metrics-recording-only',
+    '--single-process',
+    '--js-flags="--max-old-space-size=180"'
   ]
 };
 
