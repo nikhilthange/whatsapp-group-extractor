@@ -189,15 +189,52 @@ app.get('/health', (req, res) => {
 });
 
 app.get('/api/status', (req, res) => {
-  const userPhone = (client.info && client.info.wid) ? client.info.wid.user : '';
-  res.json({
+  let userPhone = '';
+  try {
+    userPhone = (client && client.info && client.info.wid) ? client.info.wid.user : '';
+  } catch(e) {}
+  
+  res.status(200).json({
     authenticated: isAuthenticated,
-    status: statusState,
+    status: statusState || 'initializing',
     qr: qrCodeDataUrl,
     userPhone,
-    groupCount: groupList.length
+    groupCount: groupList ? groupList.length : 0
   });
 });
+
+process.on('uncaughtException', (err) => {
+  console.error('⚠️ Server Uncaught Exception (safely caught):', err.message || err);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('⚠️ Server Unhandled Rejection (safely caught):', reason);
+});
+
+function startServer(portToTry) {
+  server.listen(portToTry, '0.0.0.0', () => {
+    console.log(`==================================================`);
+    console.log(`🚀 WhatsApp Contact Studio running on 0.0.0.0:${portToTry}`);
+    console.log(`🌐 Accessible via Render Cloud Proxy`);
+    console.log(`==================================================`);
+    
+    setTimeout(() => {
+      console.log('🔄 Initializing WhatsApp Web Client in background...');
+      client.initialize().catch(err => {
+        console.error('⚠️ WhatsApp client.initialize() warning:', err ? (err.message || err) : 'Unknown error');
+      });
+    }, 1000);
+  }).on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.warn(`⚠️ Port ${portToTry} is occupied, trying port ${portToTry + 1}...`);
+      startServer(portToTry + 1);
+    } else {
+      console.error('❌ Server error:', err);
+    }
+  });
+}
+
+startServer(PORT);
 
 // 1. GET /api/groups Endpoint
 app.get('/api/groups', async (req, res) => {
@@ -470,36 +507,3 @@ app.get('/download/:filename', (req, res) => {
     res.status(404).json({ error: 'File not found' });
   }
 });
-
-process.on('uncaughtException', (err) => {
-  console.error('⚠️ Server Uncaught Exception (safely caught):', err.message || err);
-});
-
-process.on('unhandledRejection', (reason) => {
-  console.error('⚠️ Server Unhandled Rejection (safely caught):', reason);
-});
-
-function startServer(portToTry) {
-  server.listen(portToTry, () => {
-    console.log(`==================================================`);
-    console.log(`🚀 WhatsApp Contact Studio running on port ${portToTry}`);
-    console.log(`🌐 Open http://localhost:${portToTry} to access Web App`);
-    console.log(`==================================================`);
-    try {
-      client.initialize().catch(err => {
-        console.error('⚠️ WhatsApp client.initialize() warning:', err.message);
-      });
-    } catch(e) {
-      console.error('⚠️ WhatsApp client initialization error:', e.message);
-    }
-  }).on('error', (err) => {
-    if (err.code === 'EADDRINUSE') {
-      console.warn(`⚠️ Port ${portToTry} is occupied, trying port ${portToTry + 1}...`);
-      startServer(portToTry + 1);
-    } else {
-      console.error('❌ Server error:', err);
-    }
-  });
-}
-
-startServer(PORT);
