@@ -125,9 +125,18 @@ io.on('connection', (socket) => {
     const client = createWhatsAppClient(sessionId);
     sessionObj.client = client;
 
+    client.on('loading_screen', (percent, message) => {
+      console.log(`⏳ [${sessionId}] Loading screen: ${percent}% - ${message}`);
+      sessionObj.isAuthenticating = true;
+      sessionObj.qrCodeDataUrl = null;
+      if (sessionObj.socket) {
+        sessionObj.socket.emit('status', { status: 'authenticating', message: `Logging in... ${percent}%` });
+      }
+    });
+
     client.on('qr', async (qr) => {
-      if (sessionObj.isAuthenticated || sessionObj.isReady || sessionObj.statusState === 'authenticating' || sessionObj.statusState === 'connected') {
-        console.log(`🛡️ [${sessionId}] Ignored stray QR event after authentication/ready.`);
+      if (sessionObj.isAuthenticating || sessionObj.isAuthenticated || sessionObj.isReady || sessionObj.statusState === 'authenticating' || sessionObj.statusState === 'connected') {
+        console.log(`🛡️ [${sessionId}] Strictly muted stray QR event after authentication initiated.`);
         return;
       }
 
@@ -153,6 +162,7 @@ io.on('connection', (socket) => {
 
     client.on('authenticated', () => {
       console.log(`🔒 [${sessionId}] Client authenticated!`);
+      sessionObj.isAuthenticating = true;
       sessionObj.isAuthenticated = true;
       sessionObj.isInitializing = false;
       sessionObj.isLaunching = false;
@@ -163,13 +173,14 @@ io.on('connection', (socket) => {
       const userPhone = (client.info && client.info.wid) ? client.info.wid.user : '';
       sessionObj.userPhone = userPhone;
       if (sessionObj.socket) {
-        sessionObj.socket.emit('authenticated', { status: 'authenticated', userPhone, message: 'Authenticating...' });
-        sessionObj.socket.emit('status', { status: sessionObj.statusState, message: 'Authenticating...' });
+        sessionObj.socket.emit('authenticated', { status: 'authenticated', userPhone, message: 'Logging in...' });
+        sessionObj.socket.emit('status', { status: 'authenticating', message: 'Logging in...' });
       }
     });
 
     client.on('ready', async () => {
       console.log(`🚀 [${sessionId}] WhatsApp Client is authenticated & ready!`);
+      sessionObj.isAuthenticating = false;
       sessionObj.isAuthenticated = true;
       sessionObj.isReady = true;
       sessionObj.isInitializing = false;
@@ -202,6 +213,7 @@ io.on('connection', (socket) => {
 
     client.on('disconnected', async (reason) => {
       console.log(`❌ [${sessionId}] Client disconnected:`, reason);
+      sessionObj.isAuthenticating = false;
       sessionObj.isAuthenticated = false;
       sessionObj.isReady = false;
       sessionObj.statusState = 'disconnected';
@@ -212,21 +224,24 @@ io.on('connection', (socket) => {
       }
       if (sessionObj.disconnectTimeout) clearTimeout(sessionObj.disconnectTimeout);
 
-      // Delay 5s before destroying to prevent rapid crash-loops
       setTimeout(async () => {
         await destroyWhatsAppSession(sessionId, client);
         activeSessions.delete(sessionId);
       }, 5000);
     });
 
-    client.on('auth_failure', (msg) => {
+    client.on('auth_failure', async (msg) => {
       console.error(`❌ [${sessionId}] Auth Failure:`, msg);
+      sessionObj.isAuthenticating = false;
+      sessionObj.isAuthenticated = false;
+      sessionObj.isReady = false;
       sessionObj.statusState = 'auth_failure';
-      sessionObj.isInitializing = false;
-      sessionObj.isLaunching = false;
+      sessionObj.qrCodeDataUrl = null;
       if (sessionObj.socket) {
-        sessionObj.socket.emit('status', { status: sessionObj.statusState, message: 'Authentication failed. Please rescan.' });
+        sessionObj.socket.emit('status', { status: 'auth_failure', message: 'Authentication failed. Please rescan.' });
       }
+      await destroyWhatsAppSession(sessionId, client);
+      activeSessions.delete(sessionId);
     });
 
     client.initialize().catch(err => {
