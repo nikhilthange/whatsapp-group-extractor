@@ -909,8 +909,33 @@
       startQrCountdown(240);
     }
 
+        let isSessionAuthenticated = false;
+
+        socket.on('status', (data) => {
+          if (!data) return;
+          if (data.status === 'connected' || data.authenticated) {
+            isSessionAuthenticated = true;
+            updateHeaderStatus(data.userPhone ? `Connected! (+${data.userPhone})` : 'Connected!', '#10b981');
+            document.getElementById('loadingBox').style.display = 'none';
+            document.getElementById('qrBox').style.display = 'none';
+            document.getElementById('groupSelectBox').style.display = 'block';
+          } else if (data.status === 'authenticating') {
+            updateHeaderStatus('Logging in...', '#fbbf24');
+            document.getElementById('loadingBox').style.display = 'block';
+            document.getElementById('loadingBox').querySelector('h3').innerText = '🔒 Authenticating WhatsApp Session...';
+            document.getElementById('qrBox').style.display = 'none';
+            document.getElementById('groupSelectBox').style.display = 'none';
+          } else if (data.status === 'waiting_for_scan' && !isSessionAuthenticated) {
+            updateHeaderStatus('Waiting for scan...', '#38bdf8');
+            document.getElementById('loadingBox').style.display = 'none';
+            document.getElementById('qrBox').style.display = 'block';
+            document.getElementById('groupSelectBox').style.display = 'none';
+          }
+        });
+
         // 1. QR Code Event
         socket.on('qr', (qrDataUrl) => {
+          if (isSessionAuthenticated) return;
           updateHeaderStatus('Waiting for scan...', '#38bdf8');
           document.getElementById('loadingBox').style.display = 'none';
           document.getElementById('qrBox').style.display = 'block';
@@ -919,6 +944,7 @@
         });
 
         socket.on('whatsapp_qr', (data) => {
+          if (isSessionAuthenticated) return;
           if (data && data.qr) {
             updateHeaderStatus('Waiting for scan...', '#38bdf8');
             document.getElementById('loadingBox').style.display = 'none';
@@ -939,6 +965,7 @@
 
         // 3. Ready Event
         socket.on('ready', (data) => {
+          isSessionAuthenticated = true;
           const userPhone = data && data.userPhone ? ` (+${data.userPhone})` : '';
           updateHeaderStatus(`Connected!${userPhone}`, '#10b981');
           document.getElementById('loadingBox').style.display = 'none';
@@ -948,6 +975,7 @@
         });
 
         socket.on('whatsapp_ready', (data) => {
+          isSessionAuthenticated = true;
           const userPhone = data && data.userPhone ? ` (+${data.userPhone})` : '';
           updateHeaderStatus(`Connected!${userPhone}`, '#10b981');
           document.getElementById('loadingBox').style.display = 'none';
@@ -958,16 +986,21 @@
 
         // 4. Group List Events
         socket.on('groups', (groups) => {
-          document.getElementById('groupSelectBox').style.display = 'block';
-          if (Array.isArray(groups)) populateGroupDropdown(groups);
+          if (isSessionAuthenticated) {
+            document.getElementById('groupSelectBox').style.display = 'block';
+            if (Array.isArray(groups)) populateGroupDropdown(groups);
+          }
         });
 
         socket.on('whatsapp_groups', (data) => {
-          document.getElementById('groupSelectBox').style.display = 'block';
-          if (data && Array.isArray(data.groups)) populateGroupDropdown(data.groups);
+          if (isSessionAuthenticated) {
+            document.getElementById('groupSelectBox').style.display = 'block';
+            if (data && Array.isArray(data.groups)) populateGroupDropdown(data.groups);
+          }
         });
 
         socket.on('groups_loaded', (data) => {
+          isSessionAuthenticated = true;
           document.getElementById('loadingBox').style.display = 'none';
           document.getElementById('qrBox').style.display = 'none';
           document.getElementById('groupSelectBox').style.display = 'block';
