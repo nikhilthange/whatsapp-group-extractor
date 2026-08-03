@@ -807,13 +807,17 @@
   <script>
     let fetchedGroupsList = [];
     let rawContacts = [];
-    let activeSocketId = '';
+
+    // Client-Side Persistent Session ID via localStorage
+    let waSessionId = localStorage.getItem('wa_session_id');
+    if (!waSessionId) {
+      waSessionId = 'sess_' + Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
+      localStorage.setItem('wa_session_id', waSessionId);
+    }
 
     async function apiFetch(url, options = {}) {
       options.headers = options.headers || {};
-      if (activeSocketId) {
-        options.headers['X-Socket-ID'] = activeSocketId;
-      }
+      options.headers['X-Session-ID'] = waSessionId;
       return fetch(url, options);
     }
 
@@ -822,16 +826,17 @@
     if (typeof io !== 'undefined') {
       try {
         socket = io({
+          auth: { sessionId: waSessionId },
+          query: { sessionId: waSessionId },
           transports: ['websocket', 'polling'],
           upgrade: true,
           reconnection: true,
-          reconnectionAttempts: 15,
-          reconnectionDelay: 2000
+          reconnectionAttempts: 25,
+          reconnectionDelay: 1000
         });
 
         socket.on('connect', () => {
-          activeSocketId = socket.id;
-          console.log('⚡ Connected to server with Socket ID:', activeSocketId);
+          console.log('⚡ Connected to server with Session ID:', waSessionId);
         });
 
         // 1. QR Code Event
@@ -954,7 +959,8 @@
       try {
         await apiFetch('/api/reset', { method: 'POST' });
       } catch(e) {}
-      setTimeout(() => location.reload(), 2500);
+      localStorage.removeItem('wa_session_id');
+      setTimeout(() => location.reload(), 2000);
     }
 
     async function fetchGroups() {

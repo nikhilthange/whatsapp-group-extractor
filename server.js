@@ -30,13 +30,13 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json());
 app.use(express.static(__dirname));
 
-// Multi-Tenant Session Storage (Map: socket.id -> { socketId, client, groups, statusState, qrCodeDataUrl, userPhone })
+// Persistent Multi-Tenant Session Storage (Map: sessionId -> { sessionId, socket, client, groups, statusState, qrCodeDataUrl, userPhone })
 const activeSessions = new Map();
 
 function getSession(req) {
-  const socketId = req.headers['x-socket-id'] || (req.query && req.query.socketId) || (req.body && req.body.socketId);
-  if (socketId && activeSessions.has(socketId)) {
-    return activeSessions.get(socketId);
+  const sessionId = req.headers['x-session-id'] || (req.query && req.query.sessionId) || (req.body && req.body.sessionId) || req.headers['x-socket-id'];
+  if (sessionId && activeSessions.has(sessionId)) {
+    return activeSessions.get(sessionId);
   }
   if (activeSessions.size > 0) {
     return activeSessions.values().next().value;
@@ -44,90 +44,133 @@ function getSession(req) {
   return null;
 }
 
-// Socket Connection Listener - Creates isolated WhatsApp client per socket connection
+// Socket Connection Listener - Re-uses or initializes session by persistent sessionId
 io.on('connection', (socket) => {
-  console.log(`🔌 New client connected via Socket ID: ${socket.id}`);
+  const sessionId = (socket.handshake.auth && socket.handshake.auth.sessionId) ||
+                    (socket.handshake.query && socket.handshake.query.sessionId) ||
+                    socket.id;
 
-  const sessionObj = {
-    socketId: socket.id,
-    client: null,
-    groups: [],
-    statusState: 'waiting_for_scan',
-    qrCodeDataUrl: null,
-    userPhone: ''
-  };
-  activeSessions.set(socket.id, sessionObj);
+  console.log(`🔌 Socket connected ID: ${socket.id} (Session ID: ${sessionId})`);
 
-  const client = createWhatsAppClient(socket.id);
-  sessionObj.client = client;
+  let sessionObj = activeSessions.get(sessionId);
 
-  client.on('qr', async (qr) => {
-    console.log(`📱 [${socket.id}] New QR code generated!`);
-    sessionObj.qrCodeDataUrl = await QRCode.toDataURL(qr);
-    sessionObj.statusState = 'waiting_for_scan';
+  if (sessionObj) {
+    console.log(`🔄 Re-attaching socket ${socket.id} to existing session: ${sessionId} (Status: ${sessionObj.statusState})`);
+    sessionObj.socket = socket;
 
-    socket.emit('qr', sessionObj.qrCodeDataUrl);
-    socket.emit('whatsapp_qr', { qr: sessionObj.qrCodeDataUrl });
-    socket.emit('status', { status: sessionObj.statusState, message: 'Waiting for QR scan...' });
-  });
+    socket.emit('status', {
+      status: sessionObj.statusState,
+      authenticated: sessionObj.statusState === 'connected',
+      userPhone: sessionObj.userPhone
+    });
 
-  client.on('authenticated', () => {
-    console.log(`🔒 [${socket.id}] Client authenticated!`);
-    sessionObj.statusState = 'authenticating';
-
-    const userPhone = (client.info && client.info.wid) ? client.info.wid.user : '';
-    sessionObj.userPhone = userPhone;
-    socket.emit('authenticated', { status: 'authenticated', userPhone, message: 'Authenticating...' });
-    socket.emit('status', { status: sessionObj.statusState, message: 'Authenticating...' });
-  });
-
-  client.on('ready', async () => {
-    console.log(`🚀 [${socket.id}] WhatsApp Client is authenticated & ready!`);
-    sessionObj.statusState = 'connected';
-    sessionObj.qrCodeDataUrl = null;
-
-    const userPhone = (client.info && client.info.wid) ? client.info.wid.user : '';
-    sessionObj.userPhone = userPhone;
-
-    socket.emit('ready', { userPhone, status: 'ready', message: 'Connected!' });
-    socket.emit('whatsapp_ready', { status: 'ready', userPhone });
-    socket.emit('status', { status: sessionObj.statusState, userPhone, message: 'Connected!' });
-
-    try {
-      sessionObj.groups = await getGroupListForClient(client);
-      console.log(`📋 [${socket.id}] Found ${sessionObj.groups.length} group chats!`);
-      socket.emit('whatsapp_groups', { groups: sessionObj.groups });
-      socket.emit('groups', sessionObj.groups);
-      socket.emit('groups_loaded', { groups: sessionObj.groups });
-    } catch(e) {
-      console.warn(`⚠️ [${socket.id}] Error fetching groups on ready:`, e.message);
+    if (sessionObj.statusState === 'waiting_for_scan' && sessionObj.qrCodeDataUrl) {
+      socket.emit('qr', sessionObj.qrCodeDataUrl);
+      socket.emit('whatsapp_qr', { qr: sessionObj.qrCodeDataUrl });
     }
-  });
 
-  client.on('disconnected', async (reason) => {
-    console.log(`❌ [${socket.id}] Client disconnected:`, reason);
-    sessionObj.statusState = 'disconnected';
-    socket.emit('disconnected', { reason, message: 'Session disconnected' });
-    await destroyWhatsAppSession(socket.id, client);
-    activeSessions.delete(socket.id);
-  });
+    if (sessionObj.statusState === 'connected') {
+      socket.emit('ready', { userPhone: sessionObj.userPhone, status: 'ready' });
+      socket.emit('whatsapp_ready', { status: 'ready', userPhone: sessionObj.userPhone });
+      if (sessionObj.groups && sessionObj.groups.length > 0) {
+        socket.emit('groups', sessionObj.groups);
+        socket.emit('whatsapp_groups', { groups: sessionObj.groups });
+        socket.emit('groups_loaded', { groups: sessionObj.groups });
+      }
+    }
+  } else {
+    sessionObj = {
+      sessionId: sessionId,
+      socket: socket,
+      client: null,
+      groups: [],
+      statusState: 'waiting_for_scan',
+      qrCodeDataUrl: null,
+      userPhone: ''
+    };
+    activeSessions.set(sessionId, sessionObj);
 
-  client.on('auth_failure', (msg) => {
-    console.error(`❌ [${socket.id}] Auth Failure:`, msg);
-    sessionObj.statusState = 'auth_failure';
-    socket.emit('status', { status: sessionObj.statusState, message: 'Authentication failed. Please rescan.' });
-  });
+    const client = createWhatsAppClient(sessionId);
+    sessionObj.client = client;
 
-  client.initialize().catch(err => {
-    console.error(`⚠️ [${socket.id}] client.initialize() error:`, err ? (err.message || err) : 'Unknown error');
-  });
+    client.on('qr', async (qr) => {
+      console.log(`📱 [${sessionId}] New QR code generated!`);
+      sessionObj.qrCodeDataUrl = await QRCode.toDataURL(qr);
+      sessionObj.statusState = 'waiting_for_scan';
 
-  socket.on('disconnect', async () => {
-    console.log(`🔌 [${socket.id}] Socket connection closed. Cleaning up session...`);
-    const sess = activeSessions.get(socket.id);
-    if (sess) {
-      await destroyWhatsAppSession(socket.id, sess.client);
-      activeSessions.delete(socket.id);
+      if (sessionObj.socket) {
+        sessionObj.socket.emit('qr', sessionObj.qrCodeDataUrl);
+        sessionObj.socket.emit('whatsapp_qr', { qr: sessionObj.qrCodeDataUrl });
+        sessionObj.socket.emit('status', { status: sessionObj.statusState, message: 'Waiting for QR scan...' });
+      }
+    });
+
+    client.on('authenticated', () => {
+      console.log(`🔒 [${sessionId}] Client authenticated!`);
+      sessionObj.statusState = 'authenticating';
+
+      const userPhone = (client.info && client.info.wid) ? client.info.wid.user : '';
+      sessionObj.userPhone = userPhone;
+      if (sessionObj.socket) {
+        sessionObj.socket.emit('authenticated', { status: 'authenticated', userPhone, message: 'Authenticating...' });
+        sessionObj.socket.emit('status', { status: sessionObj.statusState, message: 'Authenticating...' });
+      }
+    });
+
+    client.on('ready', async () => {
+      console.log(`🚀 [${sessionId}] WhatsApp Client is authenticated & ready!`);
+      sessionObj.statusState = 'connected';
+      sessionObj.qrCodeDataUrl = null;
+
+      const userPhone = (client.info && client.info.wid) ? client.info.wid.user : '';
+      sessionObj.userPhone = userPhone;
+
+      if (sessionObj.socket) {
+        sessionObj.socket.emit('ready', { userPhone, status: 'ready', message: 'Connected!' });
+        sessionObj.socket.emit('whatsapp_ready', { status: 'ready', userPhone });
+        sessionObj.socket.emit('status', { status: sessionObj.statusState, userPhone, message: 'Connected!' });
+      }
+
+      try {
+        sessionObj.groups = await getGroupListForClient(client);
+        console.log(`📋 [${sessionId}] Found ${sessionObj.groups.length} group chats!`);
+        if (sessionObj.socket) {
+          sessionObj.socket.emit('whatsapp_groups', { groups: sessionObj.groups });
+          sessionObj.socket.emit('groups', sessionObj.groups);
+          sessionObj.socket.emit('groups_loaded', { groups: sessionObj.groups });
+        }
+      } catch(e) {
+        console.warn(`⚠️ [${sessionId}] Error fetching groups on ready:`, e.message);
+      }
+    });
+
+    client.on('disconnected', async (reason) => {
+      console.log(`❌ [${sessionId}] Client disconnected:`, reason);
+      sessionObj.statusState = 'disconnected';
+      if (sessionObj.socket) {
+        sessionObj.socket.emit('disconnected', { reason, message: 'Session disconnected' });
+      }
+      await destroyWhatsAppSession(sessionId, client);
+      activeSessions.delete(sessionId);
+    });
+
+    client.on('auth_failure', (msg) => {
+      console.error(`❌ [${sessionId}] Auth Failure:`, msg);
+      sessionObj.statusState = 'auth_failure';
+      if (sessionObj.socket) {
+        sessionObj.socket.emit('status', { status: sessionObj.statusState, message: 'Authentication failed. Please rescan.' });
+      }
+    });
+
+    client.initialize().catch(err => {
+      console.error(`⚠️ [${sessionId}] client.initialize() error:`, err ? (err.message || err) : 'Unknown error');
+    });
+  }
+
+  socket.on('disconnect', () => {
+    console.log(`🔌 Socket disconnected ID: ${socket.id} (Session ID: ${sessionId}). Keeping WhatsApp session alive...`);
+    if (sessionObj.socket && sessionObj.socket.id === socket.id) {
+      sessionObj.socket = null;
     }
   });
 });
@@ -145,7 +188,7 @@ app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
     activeSessionsCount: activeSessions.size,
-    service: 'WhatsApp Contact Extractor Multi-Tenant Backend',
+    service: 'WhatsApp Contact Extractor Persistent Multi-Tenant Backend',
     timestamp: new Date().toISOString()
   });
 });
@@ -172,13 +215,13 @@ app.get('/api/status', (req, res) => {
 });
 
 app.post('/api/reset', async (req, res) => {
-  const socketId = req.headers['x-socket-id'] || req.body.socketId;
-  console.log(`🔄 Session reset API requested for socketId: ${socketId}`);
+  const sessionId = req.headers['x-session-id'] || (req.body && req.body.sessionId) || req.headers['x-socket-id'];
+  console.log(`🔄 Session reset API requested for sessionId: ${sessionId}`);
 
-  if (socketId && activeSessions.has(socketId)) {
-    const session = activeSessions.get(socketId);
-    await destroyWhatsAppSession(socketId, session.client);
-    activeSessions.delete(socketId);
+  if (sessionId && activeSessions.has(sessionId)) {
+    const session = activeSessions.get(sessionId);
+    await destroyWhatsAppSession(sessionId, session.client);
+    activeSessions.delete(sessionId);
   }
   res.json({ success: true, message: 'Session reset. Generating new QR code...' });
 });
@@ -371,7 +414,7 @@ app.post('/api/extract', async (req, res) => {
   }
 
   try {
-    console.log(`🌐 API Request [${session.socketId}]: Extracting contacts for group "${name || targetJid}" (${targetJid})`);
+    console.log(`🌐 API Request [Session: ${session.sessionId}]: Extracting contacts for group "${name || targetJid}" (${targetJid})`);
     const result = await exportGroupContactsForClient(session.client, { groupJid: targetJid, name });
 
     res.json({
@@ -401,8 +444,8 @@ app.get('/download/:filename', (req, res) => {
 function startServer(portToTry) {
   server.listen(portToTry, '0.0.0.0', () => {
     console.log(`==================================================`);
-    console.log(`🚀 Multi-Tenant WhatsApp Studio running on 0.0.0.0:${portToTry}`);
-    console.log(`🌐 Isolated sessions initialized per Socket ID connection`);
+    console.log(`🚀 Persistent Multi-Tenant WhatsApp Studio running on 0.0.0.0:${portToTry}`);
+    console.log(`🌐 Sessions persisted per wa_session_id localStorage key`);
     console.log(`==================================================`);
   }).on('error', (err) => {
     if (err.code === 'EADDRINUSE') {
