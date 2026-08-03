@@ -419,7 +419,10 @@ async function exportGroupContactsForClient(targetClient, targetGroup) {
   };
 }
 
-const client = createWhatsAppClient('default');
+let client = null;
+if (require.main === module) {
+  client = createWhatsAppClient('default');
+}
 
 function askQuestion(query) {
   const rl = readline.createInterface({
@@ -1026,11 +1029,13 @@ if (require.main === module) {
     }
   });
 
-  client.on('auth_failure', msg => {
-    console.error('❌ Authentication failed:', msg);
-  });
+  if (client) {
+    client.on('auth_failure', msg => {
+      console.error('❌ Authentication failed:', msg);
+    });
 
-  client.initialize();
+    client.initialize();
+  }
 }
 
 module.exports = {

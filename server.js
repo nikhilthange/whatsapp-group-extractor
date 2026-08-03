@@ -54,11 +54,6 @@ function getSession(req) {
     session.lastActiveTime = Date.now();
     return session;
   }
-  if (activeSessions.size > 0) {
-    const session = activeSessions.values().next().value;
-    session.lastActiveTime = Date.now();
-    return session;
-  }
   return null;
 }
 
