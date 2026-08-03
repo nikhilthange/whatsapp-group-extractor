@@ -157,52 +157,65 @@ async function getGroupsWithRetry(targetClient, maxAttempts = 6, intervalMs = 25
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       console.log(`[Groups Sync] Fetching chats (Attempt ${attempt}/${maxAttempts})...`);
+      let groupChats = [];
+
       // Attempt 1: Standard API call
-      let chats = await targetClient.getChats().catch(() => []);
+      try {
+        const chats = await targetClient.getChats().catch(() => []);
+        if (chats && chats.length > 0) {
+          groupChats = chats.filter(c => {
+            const jid = c.id ? (typeof c.id === 'string' ? c.id : (c.id._serialized || c._serialized || '')) : '';
+            return Boolean(c.isGroup || (c.id && c.id.server === 'g.us') || (jid && (jid.endsWith('@g.us') || jid.includes('@g.us'))));
+          });
+        }
+      } catch(e) {}
 
-      // Attempt 2: Direct In-Browser Store Evaluation Fallback
-      if ((!chats || chats.length === 0) && targetClient.pupPage) {
-        chats = await targetClient.pupPage.evaluate(() => {
-          let models = [];
-          try {
-            if (window.require) {
-              const collections = window.require('WAWebCollections');
-              if (collections && collections.Chat && typeof collections.Chat.getModelsArray === 'function') {
-                models = collections.Chat.getModelsArray();
-              }
-            }
-          } catch (e) {}
-
-          if (!models || models.length === 0) {
+      // Attempt 2: Direct In-Browser Store Evaluation Fallback (runs whenever groupChats is empty!)
+      if ((!groupChats || groupChats.length === 0) && targetClient.pupPage) {
+        try {
+          const evaluatedGroups = await targetClient.pupPage.evaluate(() => {
+            let models = [];
             try {
-              if (window.Store && window.Store.Chat) {
-                models = typeof window.Store.Chat.getModelsArray === 'function'
-                  ? window.Store.Chat.getModelsArray()
-                  : Array.from(window.Store.Chat.models || window.Store.Chat._models || []);
+              if (window.require) {
+                const collections = window.require('WAWebCollections');
+                if (collections && collections.Chat && typeof collections.Chat.getModelsArray === 'function') {
+                  models = collections.Chat.getModelsArray();
+                }
               }
             } catch (e) {}
-          }
 
-          return (models || []).map(c => {
-            const rawId = c.id ? (typeof c.id === 'string' ? c.id : (c.id._serialized || c.id.$1 || c.id.user || '')) : '';
-            const isGroup = Boolean(c.isGroup || (c.id && c.id.server === 'g.us') || (rawId && rawId.includes('@g.us')));
-            return {
-              id: rawId,
-              isGroup: isGroup,
-              name: c.formattedTitle || c.name || c.title || 'WhatsApp Group',
-              participantsCount: c.groupMetadata && c.groupMetadata.participants ? c.groupMetadata.participants.length : (c.participants ? c.participants.length : 0)
-            };
-          });
-        }).catch(() => []);
+            if (!models || models.length === 0) {
+              try {
+                if (window.Store && window.Store.Chat) {
+                  models = typeof window.Store.Chat.getModelsArray === 'function'
+                    ? window.Store.Chat.getModelsArray()
+                    : Array.from(window.Store.Chat.models || window.Store.Chat._models || []);
+                }
+              } catch (e) {}
+            }
+
+            return (models || [])
+              .map(c => {
+                const rawId = c.id ? (typeof c.id === 'string' ? c.id : (c.id._serialized || c.id.$1 || c.id.user || '')) : '';
+                const isGroup = Boolean(c.isGroup || (c.id && c.id.server === 'g.us') || (rawId && rawId.includes('@g.us')));
+                const pCount = c.groupMetadata && c.groupMetadata.participants ? c.groupMetadata.participants.length : (c.participants ? c.participants.length : 0);
+                return {
+                  id: rawId,
+                  isGroup: isGroup,
+                  name: c.formattedTitle || c.name || c.title || 'WhatsApp Group',
+                  participantsCount: pCount
+                };
+              })
+              .filter(c => Boolean(c.isGroup || (c.id && c.id.includes('@g.us'))));
+          }).catch(() => []);
+
+          if (evaluatedGroups && evaluatedGroups.length > 0) {
+            groupChats = evaluatedGroups;
+          }
+        } catch(e) {}
       }
 
-      // Filter for group chats
-      const groupChats = (chats || []).filter(c => {
-        const jid = c.id ? (typeof c.id === 'string' ? c.id : (c.id._serialized || c._serialized || '')) : '';
-        return Boolean(c.isGroup || (jid && (jid.endsWith('@g.us') || jid.includes('@g.us'))));
-      });
-
-      if (groupChats.length > 0) {
+      if (groupChats && groupChats.length > 0) {
         console.log(`[Groups Sync] Success! Found ${groupChats.length} group chats on attempt ${attempt}.`);
         return groupChats.map(c => {
           const jid = c.id ? (typeof c.id === 'string' ? c.id : (c.id._serialized || c._serialized || '')) : '';
