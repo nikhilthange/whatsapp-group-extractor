@@ -1514,12 +1514,14 @@
 
     function getFilteredContacts() {
       return rawContacts.filter(c => {
+        const cAdmin = (c.isAdmin === 'Yes' || c.isAdmin === true || c.role === 'Group Admin' || c.role === 'Admin');
         const matchesFilter = currentFilter === 'all' || 
-          (currentFilter === 'admins' && c.isAdmin === 'Yes') ||
-          (currentFilter === 'members' && c.isAdmin === 'No');
+          (currentFilter === 'admins' && cAdmin) ||
+          (currentFilter === 'members' && !cAdmin);
         
-        const matchesSearch = c.name.toLowerCase().includes(searchQuery) ||
-          c.phoneNumber.toLowerCase().includes(searchQuery);
+        const cName = String(c.name || c.pushname || 'N/A').toLowerCase();
+        const cPhone = String(c.phoneNumber || c.phone || 'N/A').toLowerCase();
+        const matchesSearch = !searchQuery || cName.includes(searchQuery) || cPhone.includes(searchQuery);
 
         return matchesFilter && matchesSearch;
       });
@@ -1527,6 +1529,7 @@
 
     function renderTable() {
       const tbody = document.getElementById('tableBody');
+      if (!tbody) return;
       tbody.innerHTML = '';
       const list = getFilteredContacts();
 
@@ -1537,12 +1540,17 @@
 
       list.forEach((c, idx) => {
         const tr = document.createElement('tr');
+        const phone = c.phoneNumber || c.phone || 'N/A';
+        const name = c.name || c.pushname || phone;
+        const isAdmin = (c.isAdmin === 'Yes' || c.isAdmin === true || c.role === 'Group Admin' || c.role === 'Admin');
+        const jid = c.userJid || c.id || '';
+
         tr.innerHTML = `
           <td style="color:var(--text-muted); font-size:0.85rem;">${idx + 1}</td>
-          <td style="font-weight:600; color:var(--text-primary);">${escapeHtml(c.name)}</td>
-          <td style="font-family:monospace; color:var(--accent-cyan); font-weight:600;">${escapeHtml(c.phoneNumber)}</td>
-          <td><span class="${c.isAdmin === 'Yes' ? 'badge-admin' : 'badge-member'}">${c.isAdmin === 'Yes' ? '⭐ Admin' : 'Member'}</span></td>
-          <td style="font-size:0.82rem; color:var(--text-muted); font-family:monospace;">${escapeHtml(c.userJid)}</td>
+          <td style="font-weight:600; color:var(--text-primary);">${escapeHtml(name)}</td>
+          <td style="font-family:monospace; color:var(--accent-cyan); font-weight:600;">${escapeHtml(phone)}</td>
+          <td><span class="${isAdmin ? 'badge-admin' : 'badge-member'}">${isAdmin ? '⭐ Admin' : 'Member'}</span></td>
+          <td style="font-size:0.82rem; color:var(--text-muted); font-family:monospace;">${escapeHtml(jid)}</td>
         `;
         tbody.appendChild(tr);
       });
