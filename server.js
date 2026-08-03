@@ -120,9 +120,15 @@ io.on('connection', (socket) => {
     sessionObj.client = client;
 
     client.on('qr', async (qr) => {
-      console.log(`📱 [${sessionId}] New QR code generated!`);
+      const now = Date.now();
+      if (sessionObj.lastQrTime && (now - sessionObj.lastQrTime < 12000)) {
+        console.log(`⏳ [${sessionId}] Preserving stable QR code (${Math.round((now - sessionObj.lastQrTime)/1000)}s since last QR update)`);
+        return;
+      }
+      sessionObj.lastQrTime = now;
+      console.log(`📱 [${sessionId}] New QR code generated! (Valid for 3+ minutes)`);
       sessionObj.isInitializing = false;
-      sessionObj.qrCodeDataUrl = await QRCode.toDataURL(qr);
+      sessionObj.qrCodeDataUrl = await QRCode.toDataURL(qr, { margin: 2, scale: 6 });
       sessionObj.statusState = 'waiting_for_scan';
       sessionObj.lastActiveTime = Date.now();
 
