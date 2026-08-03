@@ -239,31 +239,6 @@ process.on('unhandledRejection', (reason) => {
   console.error('⚠️ Server Unhandled Rejection (safely caught):', reason);
 });
 
-function startServer(portToTry) {
-  server.listen(portToTry, '0.0.0.0', () => {
-    console.log(`==================================================`);
-    console.log(`🚀 WhatsApp Contact Studio running on 0.0.0.0:${portToTry}`);
-    console.log(`🌐 Accessible via Render Cloud Proxy`);
-    console.log(`==================================================`);
-    
-    setTimeout(() => {
-      console.log('🔄 Initializing WhatsApp Web Client in background...');
-      client.initialize().catch(err => {
-        console.error('⚠️ WhatsApp client.initialize() warning:', err ? (err.message || err) : 'Unknown error');
-      });
-    }, 1000);
-  }).on('error', (err) => {
-    if (err.code === 'EADDRINUSE') {
-      console.warn(`⚠️ Port ${portToTry} is occupied, trying port ${portToTry + 1}...`);
-      startServer(portToTry + 1);
-    } else {
-      console.error('❌ Server error:', err);
-    }
-  });
-}
-
-startServer(PORT);
-
 // 1. GET /api/groups Endpoint
 app.get('/api/groups', async (req, res) => {
   if (!isAuthenticated) {
@@ -535,3 +510,28 @@ app.get('/download/:filename', (req, res) => {
     res.status(404).json({ error: 'File not found' });
   }
 });
+
+function startServer(portToTry) {
+  server.listen(portToTry, '0.0.0.0', () => {
+    console.log(`==================================================`);
+    console.log(`🚀 WhatsApp Contact Studio running on 0.0.0.0:${portToTry}`);
+    console.log(`🌐 Accessible via Render Cloud Proxy`);
+    console.log(`==================================================`);
+    
+    setTimeout(() => {
+      console.log('🔄 Initializing WhatsApp Web Client in background...');
+      client.initialize().catch(err => {
+        console.error('⚠️ WhatsApp client.initialize() warning:', err ? (err.message || err) : 'Unknown error');
+      });
+    }, 1000);
+  }).on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.warn(`⚠️ Port ${portToTry} is occupied, trying port ${portToTry + 1}...`);
+      startServer(portToTry + 1);
+    } else {
+      console.error('❌ Server error:', err);
+    }
+  });
+}
+
+startServer(PORT);
