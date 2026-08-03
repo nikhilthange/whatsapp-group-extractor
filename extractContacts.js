@@ -295,9 +295,15 @@ async function exportGroupContactsForClient(targetClient, targetGroup) {
           if (chatModel) {
             title = chatModel.formattedTitle || chatModel.name || chatModel.title || title;
             if (chatModel.groupMetadata && chatModel.groupMetadata.participants) {
-              parts = Array.from(chatModel.groupMetadata.participants);
+              const pColl = chatModel.groupMetadata.participants;
+              parts = typeof pColl.getModelsArray === 'function'
+                ? pColl.getModelsArray()
+                : (pColl.models || pColl._models || Array.from(pColl));
             } else if (chatModel.participants) {
-              parts = Array.from(chatModel.participants);
+              const pColl = chatModel.participants;
+              parts = typeof pColl.getModelsArray === 'function'
+                ? pColl.getModelsArray()
+                : (pColl.models || pColl._models || Array.from(pColl));
             }
           }
 
@@ -310,7 +316,9 @@ async function exportGroupContactsForClient(targetClient, targetGroup) {
                   metaModel = window.Store.GroupMetadata.get(gJid);
                 }
                 if (!metaModel) {
-                  const metaModels = Array.from(window.Store.GroupMetadata.models || window.Store.GroupMetadata._models || []);
+                  const metaModels = typeof window.Store.GroupMetadata.getModelsArray === 'function'
+                    ? window.Store.GroupMetadata.getModelsArray()
+                    : Array.from(window.Store.GroupMetadata.models || window.Store.GroupMetadata._models || []);
                   metaModel = metaModels.find(m => {
                     const mid = m.id ? (typeof m.id === 'string' ? m.id : (m.id._serialized || m.id.$1 || m.id.user || '')) : '';
                     return mid === gJid || mid.includes(gJid) || gJid.includes(mid);
@@ -318,7 +326,10 @@ async function exportGroupContactsForClient(targetClient, targetGroup) {
                 }
               }
               if (metaModel && metaModel.participants) {
-                parts = Array.from(metaModel.participants);
+                const pColl = metaModel.participants;
+                parts = typeof pColl.getModelsArray === 'function'
+                  ? pColl.getModelsArray()
+                  : (pColl.models || pColl._models || Array.from(pColl));
               }
             } catch(e) {}
           }
