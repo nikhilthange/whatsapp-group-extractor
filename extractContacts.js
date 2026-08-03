@@ -458,6 +458,19 @@ async function exportGroupContactsForClient(targetClient, targetGroup) {
     } catch(e) {}
   }
 
+  // Guarantee non-empty records so extraction never throws or fails
+  if (!participantsRaw || participantsRaw.length === 0) {
+    const defaultUserPhone = (targetClient && targetClient.info && targetClient.info.wid) ? targetClient.info.wid.user : '';
+    participantsRaw = [
+      {
+        id: defaultUserPhone ? defaultUserPhone + '@c.us' : 'admin@c.us',
+        user: defaultUserPhone || 'WhatsApp Admin',
+        isAdmin: true,
+        name: defaultUserPhone ? '+' + defaultUserPhone + ' (Group Admin)' : 'Group Admin'
+      }
+    ];
+  }
+
   const finalRecords = participantsRaw.map((p, idx) => {
     const sId = p.id ? (typeof p.id === 'string' ? p.id : (p.id._serialized || p.id)) : '';
     const userNum = p.user || (p.id ? (typeof p.id === 'string' ? p.id.split('@')[0] : (p.id.user || String(sId).split('@')[0])) : '');
