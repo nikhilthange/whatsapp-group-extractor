@@ -126,6 +126,11 @@ io.on('connection', (socket) => {
     sessionObj.client = client;
 
     client.on('qr', async (qr) => {
+      if (sessionObj.isAuthenticated || sessionObj.isReady || sessionObj.statusState === 'authenticating' || sessionObj.statusState === 'connected') {
+        console.log(`🛡️ [${sessionId}] Ignored stray QR event after authentication/ready.`);
+        return;
+      }
+
       const now = Date.now();
       if (sessionObj.lastQrTime && (now - sessionObj.lastQrTime < 20000)) {
         console.log(`⏳ [${sessionId}] Preserving stable QR code (${Math.round((now - sessionObj.lastQrTime)/1000)}s since last QR update)`);
@@ -148,9 +153,11 @@ io.on('connection', (socket) => {
 
     client.on('authenticated', () => {
       console.log(`🔒 [${sessionId}] Client authenticated!`);
+      sessionObj.isAuthenticated = true;
       sessionObj.isInitializing = false;
       sessionObj.isLaunching = false;
       sessionObj.statusState = 'authenticating';
+      sessionObj.qrCodeDataUrl = null;
       sessionObj.lastActiveTime = Date.now();
 
       const userPhone = (client.info && client.info.wid) ? client.info.wid.user : '';
@@ -163,6 +170,8 @@ io.on('connection', (socket) => {
 
     client.on('ready', async () => {
       console.log(`🚀 [${sessionId}] WhatsApp Client is authenticated & ready!`);
+      sessionObj.isAuthenticated = true;
+      sessionObj.isReady = true;
       sessionObj.isInitializing = false;
       sessionObj.isLaunching = false;
       sessionObj.statusState = 'connected';
@@ -193,6 +202,8 @@ io.on('connection', (socket) => {
 
     client.on('disconnected', async (reason) => {
       console.log(`❌ [${sessionId}] Client disconnected:`, reason);
+      sessionObj.isAuthenticated = false;
+      sessionObj.isReady = false;
       sessionObj.statusState = 'disconnected';
       sessionObj.isInitializing = false;
       sessionObj.isLaunching = false;
