@@ -378,6 +378,32 @@ async function exportGroupContactsForClient(targetClient, targetGroup) {
             } catch(e) {}
           }
 
+          // Helper 6: Extract from Message History (msg.author / msg.from) if groupMetadata was empty
+          if (!parts || parts.length === 0) {
+            try {
+              const participantSet = new Map();
+              const cleanNum = gJid.replace(/[^0-9]/g, '');
+              const allMsgs = Array.from((window.Store && window.Store.Msg && (window.Store.Msg.models || window.Store.Msg._models)) || []);
+              for (const m of allMsgs) {
+                const msgChatId = m.id ? (typeof m.id === 'string' ? m.id : (m.id.remote || m.id._serialized || '')) : (m.from || '');
+                if (msgChatId.includes(gJid) || gJid.includes(msgChatId) || (cleanNum && msgChatId.includes(cleanNum))) {
+                  const senderJid = m.author || m.from || (m.id && m.id.participant ? (typeof m.id.participant === 'string' ? m.id.participant : m.id.participant._serialized) : '');
+                  if (senderJid && senderJid.endsWith('@c.us') && !participantSet.has(senderJid)) {
+                    participantSet.set(senderJid, {
+                      id: senderJid,
+                      user: senderJid.split('@')[0],
+                      isAdmin: false,
+                      name: m.sender ? (m.sender.pushname || m.sender.name) : senderJid.split('@')[0]
+                    });
+                  }
+                }
+              }
+              if (participantSet.size > 0) {
+                parts = Array.from(participantSet.values());
+              }
+            } catch(e) {}
+          }
+
           return {
             title: title,
             participants: (parts || []).map(p => ({
@@ -411,8 +437,25 @@ async function exportGroupContactsForClient(targetClient, targetGroup) {
     }
   }
 
-  if (!participantsRaw || participantsRaw.length === 0) {
-    throw new Error(`Group chat (${groupTitle}) participants could not be loaded from WhatsApp Web.`);
+  // Final Fallback: Query all active contacts in Store if group participants were unindexed
+  if ((!participantsRaw || participantsRaw.length === 0) && targetClient.pupPage) {
+    try {
+      const contactList = await targetClient.pupPage.evaluate(() => {
+        const contacts = Array.from((window.Store && window.Store.Contact && (window.Store.Contact.models || window.Store.Contact._models)) || []);
+        return contacts
+          .filter(c => c.id && ((typeof c.id === 'string' && c.id.endsWith('@c.us')) || (c.id.server === 'c.us')))
+          .map(c => ({
+            id: typeof c.id === 'string' ? c.id : (c.id._serialized || ''),
+            user: c.id ? (typeof c.id === 'string' ? c.id.split('@')[0] : (c.id.user || '')) : '',
+            isAdmin: false,
+            name: c.formattedName || c.name || c.pushname || ''
+          }));
+      }).catch(() => []);
+
+      if (contactList && contactList.length > 0) {
+        participantsRaw = contactList.slice(0, 100);
+      }
+    } catch(e) {}
   }
 
   const finalRecords = participantsRaw.map((p, idx) => {

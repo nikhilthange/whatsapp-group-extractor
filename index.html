@@ -738,6 +738,7 @@
 
         <div class="control-card-layout" style="margin-top:1rem;">
           <div class="dropdown-wrapper">
+            <input type="text" id="groupSearchInput" class="custom-select" style="margin-bottom:0.6rem; font-size:0.88rem; background:rgba(15,23,42,0.8);" placeholder="🔍 Search/Filter WhatsApp Groups (e.g. College, Div B)..." oninput="filterGroupDropdown()">
             <select id="groupSelect" class="custom-select" onchange="onGroupSelectionChange()">
               <option value="">⏳ Fetching active WhatsApp groups...</option>
             </select>
@@ -1172,6 +1173,33 @@
         }
       }
 
+      onGroupSelectionChange();
+    }
+
+    function filterGroupDropdown() {
+      const searchEl = document.getElementById('groupSearchInput');
+      const query = searchEl ? searchEl.value.toLowerCase().trim() : '';
+      const select = document.getElementById('groupSelect');
+      if (!select || !fetchedGroupsList) return;
+
+      const filtered = query
+        ? fetchedGroupsList.filter(g => (g.name || '').toLowerCase().includes(query))
+        : fetchedGroupsList;
+
+      select.innerHTML = '<option value="">-- Select a WhatsApp Group Chat --</option>';
+
+      filtered.forEach(g => {
+        const opt = document.createElement('option');
+        opt.value = g.id || g.groupJid;
+        const count = g.memberCount || g.count || 0;
+        const memberText = count ? ` (${count} members)` : '';
+        opt.textContent = `${g.name}${memberText}`;
+        select.appendChild(opt);
+      });
+
+      if (filtered.length > 0 && select.options.length > 1) {
+        select.selectedIndex = 1;
+      }
       onGroupSelectionChange();
     }
 
