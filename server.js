@@ -141,12 +141,14 @@ io.on('connection', (socket) => {
       }
 
       const now = Date.now();
-      if (sessionObj.lastQrTime && (now - sessionObj.lastQrTime < 20000)) {
-        console.log(`⏳ [${sessionId}] Preserving stable QR code (${Math.round((now - sessionObj.lastQrTime)/1000)}s since last QR update)`);
+      if (sessionObj.firstQrTime && (now - sessionObj.firstQrTime < 240000) && sessionObj.qrCodeDataUrl) {
+        console.log(`⏳ [${sessionId}] Preserving initial stable QR code for 4-minute window (${Math.round((240000 - (now - sessionObj.firstQrTime))/1000)}s remaining)`);
         return;
       }
+
+      sessionObj.firstQrTime = now;
       sessionObj.lastQrTime = now;
-      console.log(`📱 [${sessionId}] New QR code generated! (Valid for 20+ seconds gap)`);
+      console.log(`📱 [${sessionId}] New QR code generated! Locked for 4 minutes (240s window).`);
       sessionObj.isInitializing = false;
       sessionObj.isLaunching = false;
       sessionObj.qrCodeDataUrl = await QRCode.toDataURL(qr, { margin: 2, scale: 6 });

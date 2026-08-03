@@ -110,9 +110,9 @@ function createWhatsAppClient(sessionId) {
       type: 'remote',
       remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html'
     },
-    authTimeoutMs: 180000,
-    qrMaxRetries: 20,
-    takeoverTimeoutMs: 180000,
+    authTimeoutMs: 300000,
+    qrMaxRetries: 30,
+    takeoverTimeoutMs: 300000,
     takeoverOnConflict: false,
     puppeteer: puppeteerConfig
   });

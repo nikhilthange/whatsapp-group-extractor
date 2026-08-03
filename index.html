@@ -685,7 +685,7 @@
           <img id="qrImg" src="" alt="WhatsApp QR Code" style="width:220px; height:220px; border-radius:0.85rem; background:#fff; padding:10px; display:block;">
         </div>
         <div id="qrCountdown" style="margin-top:1.25rem; font-size:0.95rem; font-weight:700; color:#38bdf8; background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.3); border-radius:20px; padding:8px 20px; display:inline-block; backdrop-filter:blur(10px);">
-          ⏳ Scan code with WhatsApp (Refreshes in <span id="qrTimerCount">20</span>s)
+          ⏳ Scan code with WhatsApp (Valid for <span id="qrTimerCount">4:00</span> mins)
         </div>
       </div>
 
@@ -869,17 +869,23 @@
 
     let qrTimerInterval = null;
     let lastQrRenderTime = 0;
-    let qrSecondsLeft = 20;
+    let qrSecondsLeft = 240;
 
-    function startQrCountdown(seconds = 20) {
+    function formatQrTime(totalSeconds) {
+      const mins = Math.floor(totalSeconds / 60);
+      const secs = totalSeconds % 60;
+      return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+    }
+
+    function startQrCountdown(seconds = 240) {
       if (qrTimerInterval) clearInterval(qrTimerInterval);
       qrSecondsLeft = seconds;
       const timerEl = document.getElementById('qrTimerCount');
-      if (timerEl) timerEl.innerText = qrSecondsLeft;
+      if (timerEl) timerEl.innerText = formatQrTime(qrSecondsLeft);
 
       qrTimerInterval = setInterval(() => {
         qrSecondsLeft--;
-        if (timerEl) timerEl.innerText = Math.max(0, qrSecondsLeft);
+        if (timerEl) timerEl.innerText = formatQrTime(Math.max(0, qrSecondsLeft));
         if (qrSecondsLeft <= 0) {
           clearInterval(qrTimerInterval);
           qrTimerInterval = null;
@@ -889,8 +895,8 @@
 
     function renderQrCode(qrDataUrl) {
       const now = Date.now();
-      if (lastQrRenderTime && (now - lastQrRenderTime < 15000)) {
-        console.log(`⏳ [Client] Holding stable QR image for user scan (${Math.round((now - lastQrRenderTime)/1000)}s old)`);
+      if (lastQrRenderTime && (now - lastQrRenderTime < 210000)) {
+        console.log(`⏳ [Client] Holding stable QR image for user scan (${Math.round((240000 - (now - lastQrRenderTime))/1000)}s remaining)`);
         return;
       }
 
@@ -900,7 +906,7 @@
         img.setAttribute('data-qr-raw', qrDataUrl);
         img.src = qrDataUrl;
       }
-      startQrCountdown(20);
+      startQrCountdown(240);
     }
 
         // 1. QR Code Event
