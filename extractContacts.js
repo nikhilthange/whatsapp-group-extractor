@@ -244,70 +244,132 @@ async function exportGroupContactsForClient(targetClient, targetGroup) {
     throw new Error('Invalid Group JID provided');
   }
 
-  let chat = null;
-  try {
-    chat = await targetClient.getChatById(targetJid);
-  } catch(e) {}
+  let participantsRaw = [];
+  let groupTitle = (targetGroup && targetGroup.name) || 'WhatsApp Group';
 
-  let participantsRaw = (chat && chat.participants) ? chat.participants : [];
-  let groupTitle = (chat && chat.name) || (targetGroup && targetGroup.name) || 'WhatsApp Group';
-
-  // In-Browser Store Fallback if getChatById failed or participants is empty
-  if ((!participantsRaw || participantsRaw.length === 0) && targetClient.pupPage) {
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    // Attempt A: Standard client.getChatById()
     try {
-      const evalResult = await targetClient.pupPage.evaluate((gJid) => {
-        let chatModel = null;
-        try {
-          if (window.require) {
-            const collections = window.require('WAWebCollections');
-            if (collections && collections.Chat && typeof collections.Chat.get === 'function') {
-              chatModel = collections.Chat.get(gJid);
-            }
-          }
-        } catch(e) {}
-
-        if (!chatModel && window.Store && window.Store.Chat) {
-          try {
-            if (typeof window.Store.Chat.get === 'function') {
-              chatModel = window.Store.Chat.get(gJid);
-            } else if (window.Store.Chat.models) {
-              const models = Array.from(window.Store.Chat.models || window.Store.Chat._models || []);
-              chatModel = models.find(m => {
-                const mid = m.id ? (typeof m.id === 'string' ? m.id : m.id._serialized || m.id.$1 || m.id.user || '') : '';
-                return mid === gJid || mid.includes(gJid) || gJid.includes(mid);
-              });
-            }
-          } catch(e) {}
-        }
-
-        if (!chatModel) return null;
-
-        const title = chatModel.formattedTitle || chatModel.name || chatModel.title || 'WhatsApp Group';
-        let parts = [];
-        if (chatModel.groupMetadata && chatModel.groupMetadata.participants) {
-          parts = Array.from(chatModel.groupMetadata.participants);
-        } else if (chatModel.participants) {
-          parts = Array.from(chatModel.participants);
-        }
-
-        return {
-          title: title,
-          participants: parts.map(p => ({
-            id: p.id ? (typeof p.id === 'string' ? p.id : (p.id._serialized || p.id.$1 || p.id.user || '')) : '',
-            isAdmin: Boolean(p.isAdmin || p.isSuperAdmin || p.role === 'admin' || p.role === 'superadmin'),
-            name: p.name || p.pushname || (p.contact ? (p.contact.name || p.contact.pushname) : '')
-          }))
-        };
-      }, targetJid);
-
-      if (evalResult) {
-        if (evalResult.title) groupTitle = evalResult.title;
-        if (evalResult.participants && evalResult.participants.length > 0) {
-          participantsRaw = evalResult.participants;
+      const chat = await targetClient.getChatById(targetJid).catch(() => null);
+      if (chat) {
+        if (chat.name) groupTitle = chat.name;
+        if (chat.participants && chat.participants.length > 0) {
+          participantsRaw = chat.participants;
         }
       }
-    } catch(e) {
-      console.warn('Page eval for group contacts fallback error:', e.message);
+    } catch(e) {}
+
+    // Attempt B: In-Browser Page Evaluation querying WAWebCollections, Store.Chat, and Store.GroupMetadata
+    if ((!participantsRaw || participantsRaw.length === 0) && targetClient.pupPage) {
+      try {
+        const evalResult = await targetClient.pupPage.evaluate((gJid) => {
+          let title = 'WhatsApp Group';
+          let parts = [];
+
+          // Helper 1: Query Chat Collection / Store
+          let chatModel = null;
+          try {
+            if (window.require) {
+              const collections = window.require('WAWebCollections');
+              if (collections && collections.Chat && typeof collections.Chat.get === 'function') {
+                chatModel = collections.Chat.get(gJid);
+              }
+            }
+          } catch(e) {}
+
+          if (!chatModel && window.Store && window.Store.Chat) {
+            try {
+              if (typeof window.Store.Chat.get === 'function') {
+                chatModel = window.Store.Chat.get(gJid);
+              } else {
+                const models = Array.from(window.Store.Chat.models || window.Store.Chat._models || []);
+                chatModel = models.find(m => {
+                  const mid = m.id ? (typeof m.id === 'string' ? m.id : (m.id._serialized || m.id.$1 || m.id.user || '')) : '';
+                  return mid === gJid || mid.includes(gJid) || gJid.includes(mid);
+                });
+              }
+            } catch(e) {}
+          }
+
+          if (chatModel) {
+            title = chatModel.formattedTitle || chatModel.name || chatModel.title || title;
+            if (chatModel.groupMetadata && chatModel.groupMetadata.participants) {
+              parts = Array.from(chatModel.groupMetadata.participants);
+            } else if (chatModel.participants) {
+              parts = Array.from(chatModel.participants);
+            }
+          }
+
+          // Helper 2: Query GroupMetadata Collection / Store if participants empty
+          if (!parts || parts.length === 0) {
+            try {
+              let metaModel = null;
+              if (window.Store && window.Store.GroupMetadata) {
+                if (typeof window.Store.GroupMetadata.get === 'function') {
+                  metaModel = window.Store.GroupMetadata.get(gJid);
+                }
+                if (!metaModel) {
+                  const metaModels = Array.from(window.Store.GroupMetadata.models || window.Store.GroupMetadata._models || []);
+                  metaModel = metaModels.find(m => {
+                    const mid = m.id ? (typeof m.id === 'string' ? m.id : (m.id._serialized || m.id.$1 || m.id.user || '')) : '';
+                    return mid === gJid || mid.includes(gJid) || gJid.includes(mid);
+                  });
+                }
+              }
+              if (metaModel && metaModel.participants) {
+                parts = Array.from(metaModel.participants);
+              }
+            } catch(e) {}
+          }
+
+          // Helper 3: Search all Chat models by partial or numeric JID matching
+          if (!parts || parts.length === 0) {
+            try {
+              const cleanNum = gJid.replace(/[^0-9]/g, '');
+              const allModels = Array.from((window.Store && window.Store.Chat && (window.Store.Chat.models || window.Store.Chat._models)) || []);
+              for (const m of allModels) {
+                const mid = m.id ? (typeof m.id === 'string' ? m.id : (m.id._serialized || m.id.$1 || m.id.user || '')) : '';
+                if (mid.includes(cleanNum) || (m.formattedTitle && gJid.includes(m.formattedTitle))) {
+                  title = m.formattedTitle || m.name || title;
+                  if (m.groupMetadata && m.groupMetadata.participants) {
+                    parts = Array.from(m.groupMetadata.participants);
+                    break;
+                  } else if (m.participants) {
+                    parts = Array.from(m.participants);
+                    break;
+                  }
+                }
+              }
+            } catch(e) {}
+          }
+
+          return {
+            title: title,
+            participants: (parts || []).map(p => ({
+              id: p.id ? (typeof p.id === 'string' ? p.id : (p.id._serialized || p.id.$1 || p.id.user || '')) : '',
+              user: p.id ? (typeof p.id === 'string' ? p.id.split('@')[0] : (p.id.user || '')) : '',
+              isAdmin: Boolean(p.isAdmin || p.isSuperAdmin || p.role === 'admin' || p.role === 'superadmin'),
+              name: p.name || p.pushname || (p.contact ? (p.contact.name || p.contact.pushname) : '')
+            }))
+          };
+        }, targetJid).catch(() => null);
+
+        if (evalResult) {
+          if (evalResult.title && evalResult.title !== 'WhatsApp Group') groupTitle = evalResult.title;
+          if (evalResult.participants && evalResult.participants.length > 0) {
+            participantsRaw = evalResult.participants;
+          }
+        }
+      } catch(e) {
+        console.warn(`[Group Contacts Sync] Page eval error on attempt ${attempt}:`, e.message);
+      }
+    }
+
+    if (participantsRaw && participantsRaw.length > 0) break;
+
+    if (attempt < 4) {
+      console.log(`[Group Contacts Sync] Attempt ${attempt}/4: Participants not yet loaded for group "${groupTitle}" (${targetJid}). Retrying in 1.5s...`);
+      await new Promise(r => setTimeout(r, 1500));
     }
   }
 
@@ -317,7 +379,7 @@ async function exportGroupContactsForClient(targetClient, targetGroup) {
 
   const finalRecords = participantsRaw.map((p, idx) => {
     const sId = p.id ? (typeof p.id === 'string' ? p.id : (p.id._serialized || p.id)) : '';
-    const userNum = p.id ? (typeof p.id === 'string' ? p.id.split('@')[0] : (p.id.user || String(sId).split('@')[0])) : '';
+    const userNum = p.user || (p.id ? (typeof p.id === 'string' ? p.id.split('@')[0] : (p.id.user || String(sId).split('@')[0])) : '');
     const isAdminRole = Boolean(p.isAdmin || p.isSuperAdmin || p.role === 'admin' || p.role === 'superadmin');
 
     return {
