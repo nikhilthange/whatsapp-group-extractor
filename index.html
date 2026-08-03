@@ -814,7 +814,13 @@
     let socket = null;
     if (typeof io !== 'undefined') {
       try {
-        socket = io();
+        socket = io({
+          transports: ['websocket', 'polling'],
+          upgrade: true,
+          reconnection: true,
+          reconnectionAttempts: 15,
+          reconnectionDelay: 2000
+        });
 
         // 1. QR Code Event
         socket.on('qr', (qrDataUrl) => {

@@ -10,7 +10,15 @@ const { client, exportGroupContacts } = require('./extractContacts');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
+const io = new Server(server, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"]
+  },
+  pingTimeout: 60000,
+  pingInterval: 25000,
+  transports: ['websocket', 'polling']
+});
 
 const PORT = process.env.PORT || 3000;
 
