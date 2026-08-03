@@ -55,6 +55,7 @@ const puppeteerConfig = {
     '--no-zygote',
     '--single-process',
     '--disable-gpu',
+    '--disable-software-rasterizer',
     '--disable-extensions',
     '--disable-component-update',
     '--no-default-browser-check',

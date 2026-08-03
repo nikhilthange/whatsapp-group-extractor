@@ -224,10 +224,11 @@ io.on('connection', (socket) => {
       }
       if (sessionObj.disconnectTimeout) clearTimeout(sessionObj.disconnectTimeout);
 
+      // Enforce minimum 10-second error cooldown before destroying to prevent tight container crash loops
       setTimeout(async () => {
         await destroyWhatsAppSession(sessionId, client);
         activeSessions.delete(sessionId);
-      }, 5000);
+      }, 10000);
     });
 
     client.on('auth_failure', async (msg) => {
