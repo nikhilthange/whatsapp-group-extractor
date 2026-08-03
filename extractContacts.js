@@ -280,7 +280,7 @@ async function exportGroupContactsForClient(targetClient, targetGroup) {
     // Attempt B: In-Browser Page Evaluation querying WAWebCollections, Store.Chat, and Store.GroupMetadata
     if ((!participantsRaw || participantsRaw.length === 0) && targetClient.pupPage) {
       try {
-        const evalResult = await targetClient.pupPage.evaluate(async (gJid) => {
+        const evalPromise = targetClient.pupPage.evaluate(async (gJid) => {
           let title = 'WhatsApp Group';
           let parts = [];
 
@@ -340,10 +340,13 @@ async function exportGroupContactsForClient(targetClient, targetGroup) {
             } catch(e) {}
           }
 
-          // Helper 3: Active Server Fetch via Store.GroupMetadata.find() if still empty
+          // Helper 3: Active Server Fetch via Store.GroupMetadata.find() with 2.5s Timeout
           if ((!parts || parts.length === 0) && window.Store && window.Store.GroupMetadata && typeof window.Store.GroupMetadata.find === 'function') {
             try {
-              const fetchedMeta = await window.Store.GroupMetadata.find(gJid);
+              const fetchedMeta = await Promise.race([
+                window.Store.GroupMetadata.find(gJid),
+                new Promise(resolve => setTimeout(() => resolve(null), 2500))
+              ]);
               if (fetchedMeta && fetchedMeta.participants) {
                 parts = Array.from(fetchedMeta.participants);
               }
@@ -401,7 +404,10 @@ async function exportGroupContactsForClient(targetClient, targetGroup) {
               name: p.name || p.pushname || (p.contact ? (p.contact.name || p.contact.pushname) : '')
             }))
           };
-        }, targetJid).catch(() => null);
+        }, targetJid);
+
+        const timeoutPromise = new Promise(resolve => setTimeout(() => resolve(null), 5000));
+        const evalResult = await Promise.race([evalPromise, timeoutPromise]).catch(() => null);
 
         if (evalResult) {
           if (evalResult.title && evalResult.title !== 'WhatsApp Group') groupTitle = evalResult.title;
