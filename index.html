@@ -314,23 +314,24 @@
 
     .action-button-group {
       display: flex;
-      gap: 0.8rem;
+      gap: 0.75rem;
       flex-wrap: wrap;
       align-items: center;
     }
 
-    /* Buttons & Micro-Interactions */
+    /* Standardized Buttons & Micro-Interactions */
     .btn {
-      padding: 0.88rem 1.45rem;
-      border-radius: 0.9rem;
-      font-size: 0.93rem;
+      height: 44px;
+      padding: 0 1.35rem;
+      border-radius: 0.85rem;
+      font-size: 0.9rem;
       font-weight: 700;
       cursor: pointer;
       transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      gap: 0.6rem;
+      gap: 0.55rem;
       text-decoration: none;
       border: 1px solid transparent;
       white-space: nowrap;
@@ -344,47 +345,90 @@
       background: linear-gradient(135deg, #10b981 0%, #059669 100%);
       color: #ffffff;
       font-weight: 800;
-      box-shadow: 0 10px 25px rgba(16, 185, 129, 0.38);
+      box-shadow: 0 8px 22px rgba(16, 185, 129, 0.35);
       border: none;
     }
 
     .btn-emerald-glow:hover {
       background: linear-gradient(135deg, #059669 0%, #047857 100%);
-      box-shadow: 0 14px 32px rgba(16, 185, 129, 0.55);
+      box-shadow: 0 12px 28px rgba(16, 185, 129, 0.5);
     }
 
     .btn-purple-grad {
       background: linear-gradient(135deg, #a855f7 0%, #7c3aed 100%);
       color: #ffffff;
       font-weight: 800;
-      box-shadow: 0 10px 25px rgba(168, 85, 247, 0.38);
+      box-shadow: 0 8px 22px rgba(168, 85, 247, 0.35);
       border: none;
     }
 
     .btn-purple-grad:hover {
       background: linear-gradient(135deg, #9333ea 0%, #6d28d9 100%);
-      box-shadow: 0 14px 32px rgba(168, 85, 247, 0.55);
+      box-shadow: 0 12px 28px rgba(168, 85, 247, 0.5);
     }
 
-    .btn-glass-alt {
+    .btn-cyan-glass {
       background: rgba(56, 189, 248, 0.12);
       border: 1px solid rgba(56, 189, 248, 0.35);
       color: var(--accent-cyan);
     }
 
-    .btn-glass-alt:hover {
+    .btn-cyan-glass:hover {
       background: rgba(56, 189, 248, 0.25);
       border-color: var(--accent-cyan-glow);
       color: #ffffff;
-      box-shadow: 0 8px 25px rgba(56, 189, 248, 0.3);
+      box-shadow: 0 8px 22px rgba(56, 189, 248, 0.3);
     }
 
-    .btn-active {
-      background: var(--accent-cyan) !important;
-      color: #070913 !important;
-      font-weight: 800 !important;
-      border-color: var(--accent-cyan-glow) !important;
-      box-shadow: 0 0 15px rgba(56, 189, 248, 0.4) !important;
+    .btn-glass-alt {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: var(--text-primary);
+    }
+
+    .btn-glass-alt:hover {
+      background: rgba(255, 255, 255, 0.12);
+      border-color: rgba(255, 255, 255, 0.3);
+      box-shadow: 0 8px 22px rgba(0, 0, 0, 0.3);
+    }
+
+    /* Segmented Filter Control Bar */
+    .segmented-tabs {
+      display: inline-flex;
+      background: rgba(15, 23, 42, 0.95);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      border-radius: 0.85rem;
+      padding: 0.25rem;
+      gap: 0.25rem;
+      height: 44px;
+      align-items: center;
+    }
+
+    .tab-btn {
+      height: 36px;
+      padding: 0 1.15rem;
+      border-radius: 0.65rem;
+      font-size: 0.88rem;
+      font-weight: 700;
+      color: var(--text-secondary);
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .tab-btn:hover {
+      color: var(--text-primary);
+    }
+
+    .tab-btn.active {
+      background: #38bdf8;
+      color: #070913;
+      font-weight: 800;
+      box-shadow: 0 0 14px rgba(56, 189, 248, 0.4);
     }
 
     /* Metric Cards Grid */
@@ -747,22 +791,24 @@
     </div>
 
     <!-- Action Toolbar & Search -->
-    <div class="glass-card toolbar-panel" id="controlsPanel">
-      <div class="search-input-box">
-        <svg class="search-icon-svg" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
-        <input type="text" id="searchInput" placeholder="Search contacts by name or phone number...">
+    <div class="glass-card" id="controlsPanel" style="padding: 1.25rem 1.5rem; display: flex; flex-direction: column; gap: 1.1rem;">
+      <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem;">
+        <div class="search-input-box">
+          <svg class="search-icon-svg" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+          <input type="text" id="searchInput" placeholder="Search contacts by name or phone number...">
+        </div>
+
+        <div class="segmented-tabs">
+          <button class="tab-btn active" id="btnFilterAll" onclick="setFilter('all')">All</button>
+          <button class="tab-btn" id="btnFilterAdmins" onclick="setFilter('admins')">Admins</button>
+          <button class="tab-btn" id="btnFilterMembers" onclick="setFilter('members')">Members</button>
+        </div>
       </div>
 
-      <div class="filter-buttons">
-        <button class="btn btn-glass-alt btn-active" id="btnFilterAll" onclick="setFilter('all')">All</button>
-        <button class="btn btn-glass-alt" id="btnFilterAdmins" onclick="setFilter('admins')">Admins</button>
-        <button class="btn btn-glass-alt" id="btnFilterMembers" onclick="setFilter('members')">Members</button>
-      </div>
-
-      <div style="display:flex; gap:0.6rem; flex-wrap:wrap;">
-        <button class="btn btn-glass-alt" onclick="copyPhoneNumbers()">📋 Copy Numbers</button>
+      <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 1rem;">
+        <button class="btn btn-cyan-glass" onclick="copyPhoneNumbers()">📋 Copy Numbers</button>
         <button class="btn btn-emerald-glow" onclick="exportExcel()">📊 Export Excel (.xlsx)</button>
-        <button class="btn btn-glass-alt" onclick="exportVCard()">📇 Export .VCF (vCard)</button>
+        <button class="btn btn-purple-grad" onclick="exportVCard()">📇 Export .VCF (vCard)</button>
       </div>
     </div>
 
@@ -1437,9 +1483,9 @@
 
     function setFilter(filter) {
       currentFilter = filter;
-      document.getElementById('btnFilterAll').classList.toggle('btn-active', filter === 'all');
-      document.getElementById('btnFilterAdmins').classList.toggle('btn-active', filter === 'admins');
-      document.getElementById('btnFilterMembers').classList.toggle('btn-active', filter === 'members');
+      document.getElementById('btnFilterAll').classList.toggle('active', filter === 'all');
+      document.getElementById('btnFilterAdmins').classList.toggle('active', filter === 'admins');
+      document.getElementById('btnFilterMembers').classList.toggle('active', filter === 'members');
       renderTable();
     }
 
