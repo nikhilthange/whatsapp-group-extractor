@@ -189,14 +189,15 @@ async function getGroupsWithRetry(targetClient, maxAttempts = 5, intervalMs = 30
 
             return chatModels.map(c => {
               const serializedId = (c.id && (c.id._serialized || (typeof c.id === 'string' ? c.id : ''))) || '';
-              const isGroupChat = Boolean(c.isGroup || (c.id && c.id.server === 'g.us') || serializedId.endsWith('@g.us'));
-              const pCount = (c.groupMetadata && c.groupMetadata.participants) ? c.groupMetadata.participants.length : (c.participantsCount || 0);
+              const isGroupChat = Boolean(c.isGroup || (c.id && c.id.server === 'g.us') || (c.id && c.id._serialized && c.id._serialized.endsWith('@g.us')) || serializedId.endsWith('@g.us'));
+              const pCount = c.groupMetadata ? (c.groupMetadata.participants ? c.groupMetadata.participants.length : 0) : (c.participants ? c.participants.length : 0);
 
               return {
                 id: { _serialized: serializedId },
                 _serialized: serializedId,
-                name: c.formattedTitle || c.name || c.title || 'Unnamed Group',
+                name: c.formattedTitle || c.name || c.title || 'WhatsApp Group',
                 isGroup: isGroupChat,
+                memberCount: pCount,
                 participants: (c.groupMetadata && c.groupMetadata.participants) ? c.groupMetadata.participants : []
               };
             });
@@ -216,11 +217,11 @@ async function getGroupsWithRetry(targetClient, maxAttempts = 5, intervalMs = 30
         console.log(`[IndexedDB Sync] Success! Found ${groupChats.length} group chats on attempt ${attempt}.`);
         return groupChats.map(c => {
           const jid = (c.id && c.id._serialized) ? c.id._serialized : (c._serialized || (typeof c.id === 'string' ? c.id : ''));
-          const mCount = c.participants ? c.participants.length : (c.groupMetadata ? (c.groupMetadata.participants ? c.groupMetadata.participants.length : 0) : 0);
+          const mCount = c.memberCount !== undefined ? c.memberCount : (c.participants ? c.participants.length : (c.groupMetadata ? (c.groupMetadata.participants ? c.groupMetadata.participants.length : 0) : 0));
           return {
             id: jid,
             groupJid: jid,
-            name: c.name || c.formattedTitle || 'Unnamed Group',
+            name: c.name || c.formattedTitle || 'WhatsApp Group',
             memberCount: mCount,
             count: mCount
           };

@@ -29,12 +29,12 @@ const io = new Server(server, {
 
 const PORT = process.env.PORT || 3000;
 const MAX_ACTIVE_SESSIONS = parseInt(process.env.MAX_ACTIVE_SESSIONS || '5', 10);
-const IDLE_SESSION_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes idle session cleanup
+const IDLE_SESSION_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes idle cleanup
 
 app.use(express.json());
 app.use(express.static(__dirname));
 
-// Persistent Multi-Tenant Session Storage (Map: sessionId -> { sessionId, socket, client, groups, statusState, qrCodeDataUrl, userPhone, lastActiveTime, disconnectTimeout })
+// Persistent Multi-Tenant Session Storage
 const activeSessions = new Map();
 
 function getSession(req) {
@@ -52,7 +52,7 @@ function getSession(req) {
   return null;
 }
 
-// Socket Connection Listener - Handles reconnects, idle 10m timers, and RAM session caps
+// Socket Connection Listener - Prevents duplicate client initialization & handles reconnects
 io.on('connection', (socket) => {
   const sessionId = (socket.handshake.auth && socket.handshake.auth.sessionId) ||
                     (socket.handshake.query && socket.handshake.query.sessionId) ||
@@ -106,19 +106,22 @@ io.on('connection', (socket) => {
       socket: socket,
       client: null,
       groups: [],
-      statusState: 'waiting_for_scan',
+      statusState: 'initializing',
       qrCodeDataUrl: null,
       userPhone: '',
       lastActiveTime: Date.now(),
-      disconnectTimeout: null
+      disconnectTimeout: null,
+      isInitializing: true
     };
     activeSessions.set(sessionId, sessionObj);
 
+    console.log(`🚀 Spawning single WhatsApp client for session: ${sessionId}`);
     const client = createWhatsAppClient(sessionId);
     sessionObj.client = client;
 
     client.on('qr', async (qr) => {
       console.log(`📱 [${sessionId}] New QR code generated!`);
+      sessionObj.isInitializing = false;
       sessionObj.qrCodeDataUrl = await QRCode.toDataURL(qr);
       sessionObj.statusState = 'waiting_for_scan';
       sessionObj.lastActiveTime = Date.now();
@@ -132,6 +135,7 @@ io.on('connection', (socket) => {
 
     client.on('authenticated', () => {
       console.log(`🔒 [${sessionId}] Client authenticated!`);
+      sessionObj.isInitializing = false;
       sessionObj.statusState = 'authenticating';
       sessionObj.lastActiveTime = Date.now();
 
@@ -145,6 +149,7 @@ io.on('connection', (socket) => {
 
     client.on('ready', async () => {
       console.log(`🚀 [${sessionId}] WhatsApp Client is authenticated & ready!`);
+      sessionObj.isInitializing = false;
       sessionObj.statusState = 'connected';
       sessionObj.qrCodeDataUrl = null;
       sessionObj.lastActiveTime = Date.now();
@@ -174,17 +179,23 @@ io.on('connection', (socket) => {
     client.on('disconnected', async (reason) => {
       console.log(`❌ [${sessionId}] Client disconnected:`, reason);
       sessionObj.statusState = 'disconnected';
+      sessionObj.isInitializing = false;
       if (sessionObj.socket) {
         sessionObj.socket.emit('disconnected', { reason, message: 'Session disconnected' });
       }
       if (sessionObj.disconnectTimeout) clearTimeout(sessionObj.disconnectTimeout);
-      await destroyWhatsAppSession(sessionId, client);
-      activeSessions.delete(sessionId);
+
+      // Delay 5s before destroying to prevent rapid crash-loops
+      setTimeout(async () => {
+        await destroyWhatsAppSession(sessionId, client);
+        activeSessions.delete(sessionId);
+      }, 5000);
     });
 
     client.on('auth_failure', (msg) => {
       console.error(`❌ [${sessionId}] Auth Failure:`, msg);
       sessionObj.statusState = 'auth_failure';
+      sessionObj.isInitializing = false;
       if (sessionObj.socket) {
         sessionObj.socket.emit('status', { status: sessionObj.statusState, message: 'Authentication failed. Please rescan.' });
       }
@@ -192,6 +203,7 @@ io.on('connection', (socket) => {
 
     client.initialize().catch(err => {
       console.error(`⚠️ [${sessionId}] client.initialize() error:`, err ? (err.message || err) : 'Unknown error');
+      sessionObj.isInitializing = false;
     });
   }
 
@@ -206,7 +218,7 @@ io.on('connection', (socket) => {
     if (sessionObj.disconnectTimeout) clearTimeout(sessionObj.disconnectTimeout);
 
     sessionObj.disconnectTimeout = setTimeout(async () => {
-      console.log(`🗑️ [Garbage Collector] Session ${sessionId} idle for 10 minutes without socket connection. Destroying Chrome & purging storage...`);
+      console.log(`🗑️ [Garbage Collector] Session ${sessionId} idle for 10 minutes. Destroying Chrome & purging storage...`);
       await destroyWhatsAppSession(sessionId, sessionObj.client);
       activeSessions.delete(sessionId);
     }, IDLE_SESSION_TIMEOUT_MS);
@@ -266,7 +278,7 @@ app.post('/api/reset', async (req, res) => {
   res.json({ success: true, message: 'Session reset. Generating new QR code...' });
 });
 
-// 1. GET /api/groups Endpoint
+// 1. GET /api/groups Endpoint - Non-blocking status handler
 app.get('/api/groups', async (req, res) => {
   const sessionId = req.headers['x-session-id'] || (req.query && req.query.sessionId) || (req.body && req.body.sessionId) || req.headers['x-socket-id'];
 
@@ -283,7 +295,7 @@ app.get('/api/groups', async (req, res) => {
 
   if (!session.client || session.statusState !== 'connected') {
     return res.status(200).json({
-      success: true,
+      success: false,
       loading: true,
       authenticated: session.statusState === 'authenticating',
       status: session.statusState,
@@ -295,7 +307,7 @@ app.get('/api/groups', async (req, res) => {
     session.groups = await getGroupsWithRetry(session.client, 3, 2000);
     res.status(200).json({
       success: true,
-      loading: session.groups.length === 0,
+      loading: false,
       authenticated: true,
       status: 'connected',
       groups: session.groups
@@ -510,8 +522,7 @@ function startServer(portToTry) {
   server.listen(portToTry, '0.0.0.0', () => {
     console.log(`==================================================`);
     console.log(`🚀 Hardened WhatsApp Studio running on 0.0.0.0:${portToTry}`);
-    console.log(`🛡️ RAM Guard: Max ${MAX_ACTIVE_SESSIONS} concurrent active sessions allowed`);
-    console.log(`⏱️ Garbage Collector: 10-minute idle disconnect cleanup active`);
+    console.log(`🛡️ Single-Client Lock & Session Init Mutex Active`);
     console.log(`==================================================`);
   }).on('error', (err) => {
     if (err.code === 'EADDRINUSE') {

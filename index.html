@@ -821,9 +821,34 @@
       return fetch(url, options);
     }
 
+    // Single-Tab Socket Guard via BroadcastChannel
+    let isMasterTab = true;
+    if (typeof BroadcastChannel !== 'undefined') {
+      try {
+        const tabGuard = new BroadcastChannel('wa_studio_tab_guard_' + waSessionId);
+        tabGuard.postMessage({ type: 'CLAIM_TAB', timestamp: Date.now() });
+        tabGuard.onmessage = (msg) => {
+          if (msg.data && msg.data.type === 'CLAIM_TAB') {
+            tabGuard.postMessage({ type: 'TAB_ACTIVE_RESPONSE' });
+          } else if (msg.data && msg.data.type === 'TAB_ACTIVE_RESPONSE') {
+            isMasterTab = false;
+            console.warn('⚠️ App is already active in another browser tab. Disconnecting secondary socket.');
+            if (socket && socket.connected) {
+              socket.disconnect();
+            }
+            updateHeaderStatus('Active in another tab', '#f59e0b');
+            document.getElementById('loadingBox').style.display = 'block';
+            document.getElementById('loadingBox').querySelector('h3').innerText = '⚠️ WhatsApp Studio is already active in another browser tab. Please use that tab.';
+            document.getElementById('qrBox').style.display = 'none';
+            document.getElementById('groupSelectBox').style.display = 'none';
+          }
+        };
+      } catch(e) {}
+    }
+
     // Real-Time Socket.io Lifecycle Handlers
     let socket = null;
-    if (typeof io !== 'undefined') {
+    if (typeof io !== 'undefined' && isMasterTab) {
       try {
         socket = io({
           auth: { sessionId: waSessionId },
