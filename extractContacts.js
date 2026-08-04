@@ -416,12 +416,95 @@ async function exportGroupContactsForClient(targetClient, targetGroup) {
 
           return {
             title: title,
-            participants: (parts || []).map(p => ({
-              id: p.id ? (typeof p.id === 'string' ? p.id : (p.id._serialized || p.id.$1 || p.id.user || '')) : '',
-              user: p.id ? (typeof p.id === 'string' ? p.id.split('@')[0] : (p.id.user || '')) : '',
-              isAdmin: Boolean(p.isAdmin || p.isSuperAdmin || p.role === 'admin' || p.role === 'superadmin'),
-              name: p.name || p.pushname || (p.contact ? (p.contact.name || p.contact.pushname) : '')
-            }))
+            participants: (parts || []).map(p => {
+              const rawId = p.id ? (typeof p.id === 'string' ? p.id : (p.id._serialized || p.id.$1 || p.id.user || '')) : '';
+              let pnJid = p.pn ? (typeof p.pn === 'string' ? p.pn : (p.pn._serialized || p.pn.user || '')) : '';
+              if (!pnJid && p.pnJid) {
+                pnJid = typeof p.pnJid === 'string' ? p.pnJid : (p.pnJid._serialized || p.pnJid.user || '');
+              }
+
+              // Query Store.Contact model
+              let contactModel = null;
+              try {
+                if (window.Store && window.Store.Contact) {
+                  if (typeof window.Store.Contact.get === 'function') {
+                    contactModel = window.Store.Contact.get(rawId) || (pnJid ? window.Store.Contact.get(pnJid) : null);
+                  }
+                  if (!contactModel && window.Store.Contact.models) {
+                    const models = Array.from(window.Store.Contact.models || window.Store.Contact._models || []);
+                    contactModel = models.find(c => {
+                      const cid = c.id ? (typeof c.id === 'string' ? c.id : (c.id._serialized || '')) : '';
+                      const clid = c.lid ? (typeof c.lid === 'string' ? c.lid : (c.lid._serialized || '')) : '';
+                      return (cid && (cid === rawId || cid === pnJid)) || (clid && (clid === rawId || clid === pnJid));
+                    });
+                  }
+                }
+              } catch(e) {}
+              if (!contactModel && p.contact) contactModel = p.contact;
+
+              // Determine real phone number digits
+              let extractedPhone = '';
+
+              // A) Try PN JID
+              if (pnJid) {
+                const u = pnJid.split('@')[0].replace(/[^0-9]/g, '');
+                if (u && u.length >= 7 && u.length <= 15) extractedPhone = u;
+              }
+
+              // B) Try Contact model
+              if (!extractedPhone && contactModel) {
+                if (contactModel.id) {
+                  const cid = typeof contactModel.id === 'string' ? contactModel.id : (contactModel.id._serialized || '');
+                  const cserver = contactModel.id.server || '';
+                  if (cserver === 'c.us' || cserver === 's.whatsapp.net' || cid.endsWith('@c.us') || cid.endsWith('@s.whatsapp.net')) {
+                    const u = (typeof contactModel.id === 'string' ? contactModel.id.split('@')[0] : (contactModel.id.user || '')).replace(/[^0-9]/g, '');
+                    if (u && u.length >= 7 && u.length <= 15) extractedPhone = u;
+                  }
+                }
+                if (!extractedPhone && contactModel.phoneNumber) {
+                  const u = String(contactModel.phoneNumber).replace(/[^0-9]/g, '');
+                  if (u && u.length >= 7 && u.length <= 15) extractedPhone = u;
+                }
+                if (!extractedPhone && contactModel.number) {
+                  const u = String(contactModel.number).replace(/[^0-9]/g, '');
+                  if (u && u.length >= 7 && u.length <= 15) extractedPhone = u;
+                }
+                if (!extractedPhone && contactModel.userid) {
+                  const u = String(contactModel.userid).replace(/[^0-9]/g, '');
+                  if (u && u.length >= 7 && u.length <= 15) extractedPhone = u;
+                }
+              }
+
+              // C) Try rawId if it is a phone number JID (@c.us or @s.whatsapp.net)
+              if (!extractedPhone && rawId && (rawId.endsWith('@c.us') || rawId.endsWith('@s.whatsapp.net') || (!rawId.endsWith('@lid') && !rawId.includes('@lid')))) {
+                const u = rawId.split('@')[0].replace(/[^0-9]/g, '');
+                if (u && u.length >= 7 && u.length <= 15) extractedPhone = u;
+              }
+
+              // Extract Name
+              let displayName = p.name || p.pushname || '';
+              if (contactModel) {
+                displayName = contactModel.name || contactModel.formattedName || contactModel.pushname || contactModel.displayName || contactModel.shortName || displayName;
+              }
+
+              // D) Check if displayName is actually a phone number string (e.g. "+919324708851")
+              const cleanDigits = String(displayName || '').replace(/[^0-9]/g, '');
+              const isPhoneInName = String(displayName || '').trim().startsWith('+') || (cleanDigits.length >= 10 && cleanDigits.length <= 15 && !/[a-zA-Z]/.test(displayName));
+
+              if (isPhoneInName) {
+                if (!extractedPhone) {
+                  extractedPhone = cleanDigits;
+                }
+              }
+
+              return {
+                id: rawId,
+                user: extractedPhone || (rawId.endsWith('@lid') ? '' : rawId.split('@')[0]),
+                phoneNum: extractedPhone,
+                isAdmin: Boolean(p.isAdmin || p.isSuperAdmin || p.role === 'admin' || p.role === 'superadmin'),
+                name: isPhoneInName ? '' : displayName
+              };
+            })
           };
         }, targetJid);
 
@@ -483,16 +566,39 @@ async function exportGroupContactsForClient(targetClient, targetGroup) {
 
   const finalRecords = participantsRaw.map((p, idx) => {
     const sId = p.id ? (typeof p.id === 'string' ? p.id : (p.id._serialized || p.id)) : '';
-    const userNum = p.user || (p.id ? (typeof p.id === 'string' ? p.id.split('@')[0] : (p.id.user || String(sId).split('@')[0])) : '');
+    
+    let rawNum = p.phoneNum || p.user || '';
+    if (!rawNum && sId && !sId.includes('@lid')) {
+      rawNum = typeof sId === 'string' ? sId.split('@')[0] : '';
+    }
+
+    if (!p.phoneNum && (sId.includes('@lid') || (rawNum && rawNum.length > 13))) {
+      const nameDigits = String(p.name || '').replace(/[^0-9]/g, '');
+      if (nameDigits.length >= 10 && nameDigits.length <= 15) {
+        rawNum = nameDigits;
+      } else {
+        rawNum = '';
+      }
+    }
+
+    const cleanDigits = rawNum.replace(/[^0-9]/g, '');
+    const formattedPhone = cleanDigits.length >= 7 ? '+' + cleanDigits : 'N/A';
+
     const isAdminRole = Boolean(p.isAdmin || p.isSuperAdmin || p.role === 'admin' || p.role === 'superadmin');
+
+    let displayName = p.name || p.pushname || (p.contact ? (p.contact.name || p.contact.pushname) : '');
+    
+    if (!displayName || displayName === formattedPhone || displayName === cleanDigits || String(displayName).replace(/[^0-9]/g, '') === cleanDigits) {
+      displayName = formattedPhone !== 'N/A' ? formattedPhone : 'WhatsApp Contact';
+    }
 
     return {
       index: idx + 1,
       id: sId,
       userJid: sId,
-      phone: userNum ? '+' + userNum : 'N/A',
-      phoneNumber: userNum ? '+' + userNum : 'N/A',
-      name: p.name || p.pushname || (p.contact ? (p.contact.name || p.contact.pushname) : 'N/A') || (userNum ? '+' + userNum : 'N/A'),
+      phone: formattedPhone,
+      phoneNumber: formattedPhone,
+      name: displayName,
       isAdmin: isAdminRole ? 'Yes' : 'No',
       role: isAdminRole ? 'Group Admin' : 'Member',
       groupName: groupTitle
