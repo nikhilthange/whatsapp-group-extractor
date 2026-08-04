@@ -11,20 +11,20 @@
   <script src="/socket.io/socket.io.js"></script>
   <style>
     :root {
-      --bg-dark: #070913;
-      --card-glass: rgba(255, 255, 255, 0.035);
+      --bg-dark: #0b0f19;
+      --card-glass: rgba(15, 23, 42, 0.75);
       --card-border: rgba(255, 255, 255, 0.12);
       --accent-emerald: #10b981;
-      --accent-emerald-glow: #00f59b;
+      --accent-emerald-glow: #34d399;
       --accent-cyan: #38bdf8;
       --accent-cyan-glow: #00e5ff;
-      --accent-violet: #8b5cf6;
+      --accent-indigo: #6366f1;
       --accent-purple: #a855f7;
       --text-primary: #f8fafc;
-      --text-secondary: #94a3b8;
-      --text-muted: #64748b;
-      --glass-shadow: 0 20px 50px rgba(0, 0, 0, 0.65);
-      --glow-shadow: 0 0 30px rgba(16, 185, 129, 0.25);
+      --text-secondary: #cbd5e1;
+      --text-muted: #94a3b8;
+      --glass-shadow: 0 20px 50px rgba(0, 0, 0, 0.55);
+      --glow-shadow: 0 0 25px rgba(16, 185, 129, 0.3);
     }
 
     * {
@@ -48,43 +48,43 @@
       position: relative;
       overflow-x: hidden;
       background-image: 
-        radial-gradient(circle at 12% 15%, rgba(16, 185, 129, 0.14) 0%, transparent 40%),
-        radial-gradient(circle at 88% 82%, rgba(56, 189, 248, 0.14) 0%, transparent 40%),
-        radial-gradient(circle at 50% 50%, rgba(139, 92, 246, 0.09) 0%, transparent 60%);
+        radial-gradient(circle at 10% 15%, rgba(16, 185, 129, 0.15) 0%, transparent 45%),
+        radial-gradient(circle at 90% 85%, rgba(56, 189, 248, 0.15) 0%, transparent 45%),
+        radial-gradient(circle at 50% 50%, rgba(99, 102, 241, 0.1) 0%, transparent 60%);
     }
 
     /* Floating Background Orbs */
     body::before {
       content: '';
       position: absolute;
-      top: -100px;
-      left: 20%;
-      width: 500px;
-      height: 500px;
-      background: radial-gradient(circle, rgba(16, 185, 129, 0.25) 0%, transparent 70%);
-      filter: blur(100px);
+      top: -120px;
+      left: 15%;
+      width: 550px;
+      height: 550px;
+      background: radial-gradient(circle, rgba(16, 185, 129, 0.22) 0%, transparent 70%);
+      filter: blur(110px);
       z-index: 0;
       pointer-events: none;
-      animation: floatOrb 12s ease-in-out infinite alternate;
+      animation: floatOrb 14s ease-in-out infinite alternate;
     }
 
     body::after {
       content: '';
       position: absolute;
-      bottom: -100px;
-      right: 15%;
-      width: 450px;
-      height: 450px;
-      background: radial-gradient(circle, rgba(168, 85, 247, 0.2) 0%, transparent 70%);
-      filter: blur(100px);
+      bottom: -120px;
+      right: 12%;
+      width: 500px;
+      height: 500px;
+      background: radial-gradient(circle, rgba(56, 189, 248, 0.2) 0%, transparent 70%);
+      filter: blur(110px);
       z-index: 0;
       pointer-events: none;
-      animation: floatOrb 15s ease-in-out infinite alternate-reverse;
+      animation: floatOrb 16s ease-in-out infinite alternate-reverse;
     }
 
     @keyframes floatOrb {
       0% { transform: translate(0, 0) scale(1); }
-      100% { transform: translate(45px, 35px) scale(1.12); }
+      100% { transform: translate(50px, 40px) scale(1.15); }
     }
 
     /* Fixed Top Navigation Bar */
@@ -94,15 +94,15 @@
       left: 0;
       right: 0;
       height: 4.5rem;
-      background: rgba(7, 9, 19, 0.85);
+      background: rgba(11, 15, 25, 0.88);
       backdrop-filter: blur(20px);
       -webkit-backdrop-filter: blur(20px);
-      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.12);
       z-index: 50;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 0 2rem;
+      padding: 0 2.25rem;
     }
 
     .nav-brand {
@@ -113,10 +113,10 @@
     }
 
     .brand-logo-icon {
-      width: 38px;
-      height: 38px;
+      width: 40px;
+      height: 40px;
       background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-      border-radius: 0.75rem;
+      border-radius: 0.85rem;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -130,44 +130,44 @@
     }
 
     .nav-title {
-      font-size: 1.3rem;
+      font-size: 1.32rem;
       font-weight: 800;
       letter-spacing: -0.015em;
-      background: linear-gradient(135deg, #ffffff 0%, #cbd5e1 100%);
+      background: linear-gradient(135deg, #ffffff 0%, #38bdf8 100%);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
       display: flex;
       align-items: center;
-      gap: 0.6rem;
+      gap: 0.65rem;
     }
 
     .nav-pro-tag {
-      font-size: 0.7rem;
+      font-size: 0.72rem;
       font-weight: 800;
       background: rgba(16, 185, 129, 0.18);
       border: 1px solid rgba(16, 185, 129, 0.45);
       color: var(--accent-emerald-glow);
-      padding: 0.2rem 0.6rem;
+      padding: 0.25rem 0.7rem;
       border-radius: 2rem;
       letter-spacing: 0.05em;
-      box-shadow: 0 0 10px rgba(16, 185, 129, 0.2);
+      box-shadow: 0 0 12px rgba(16, 185, 129, 0.25);
     }
 
     .nav-actions {
       display: flex;
       align-items: center;
-      gap: 1rem;
+      gap: 1.1rem;
     }
 
     .status-pill {
       display: flex;
       align-items: center;
-      gap: 0.6rem;
-      background: rgba(15, 23, 42, 0.8);
-      border: 1px solid rgba(255, 255, 255, 0.12);
-      padding: 0.45rem 1rem;
+      gap: 0.65rem;
+      background: rgba(15, 23, 42, 0.9);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      padding: 0.5rem 1.15rem;
       border-radius: 2rem;
-      font-size: 0.88rem;
+      font-size: 0.9rem;
       font-weight: 600;
       backdrop-filter: blur(10px);
     }
@@ -187,32 +187,32 @@
     }
 
     .btn-reset {
-      background: rgba(239, 68, 68, 0.12);
-      border: 1px solid rgba(239, 68, 68, 0.3);
-      color: #f87171;
-      padding: 0.45rem 1rem;
+      background: rgba(244, 63, 94, 0.15);
+      border: 1px solid rgba(244, 63, 94, 0.4);
+      color: #fb7185;
+      padding: 0.5rem 1.15rem;
       border-radius: 0.75rem;
       font-size: 0.88rem;
-      font-weight: 600;
+      font-weight: 700;
       cursor: pointer;
       transition: all 0.25s ease;
       display: inline-flex;
       align-items: center;
-      gap: 0.45rem;
+      gap: 0.5rem;
     }
 
     .btn-reset:hover {
-      background: rgba(239, 68, 68, 0.25);
-      border-color: #f87171;
+      background: rgba(244, 63, 94, 0.3);
+      border-color: #f43f5e;
       color: #ffffff;
       transform: translateY(-1px);
-      box-shadow: 0 5px 15px rgba(239, 68, 68, 0.3);
+      box-shadow: 0 5px 18px rgba(244, 63, 94, 0.35);
     }
 
     /* Container Layout */
     .container {
       width: 100%;
-      max-width: 1160px;
+      max-width: 1180px;
       display: flex;
       flex-direction: column;
       gap: 1.85rem;
@@ -224,8 +224,8 @@
     .glass-card {
       background: var(--card-glass);
       border: 1px solid var(--card-border);
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
       border-radius: 1.35rem;
       box-shadow: var(--glass-shadow);
       padding: 1.85rem;
@@ -260,7 +260,7 @@
     }
 
     .control-card-title {
-      font-size: 1.25rem;
+      font-size: 1.3rem;
       font-weight: 800;
       display: flex;
       align-items: center;
@@ -288,8 +288,8 @@
 
     .custom-select {
       width: 100%;
-      background: rgba(15, 23, 42, 0.95);
-      border: 1px solid rgba(255, 255, 255, 0.18);
+      background: rgba(11, 15, 25, 0.95);
+      border: 1px solid rgba(255, 255, 255, 0.2);
       color: var(--text-primary);
       padding: 0.95rem 1.35rem;
       border-radius: 0.9rem;
@@ -308,8 +308,8 @@
     }
 
     .custom-select:focus, .custom-select:hover {
-      border-color: var(--accent-emerald-glow);
-      box-shadow: 0 0 22px rgba(16, 185, 129, 0.25);
+      border-color: var(--accent-cyan);
+      box-shadow: 0 0 22px rgba(56, 189, 248, 0.3);
     }
 
     .action-button-group {
@@ -355,16 +355,16 @@
     }
 
     .btn-purple-grad {
-      background: linear-gradient(135deg, #a855f7 0%, #7c3aed 100%);
+      background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
       color: #ffffff;
       font-weight: 800;
-      box-shadow: 0 8px 22px rgba(168, 85, 247, 0.35);
+      box-shadow: 0 8px 22px rgba(2, 132, 199, 0.35);
       border: none;
     }
 
     .btn-purple-grad:hover {
-      background: linear-gradient(135deg, #9333ea 0%, #6d28d9 100%);
-      box-shadow: 0 12px 28px rgba(168, 85, 247, 0.5);
+      background: linear-gradient(135deg, #0369a1 0%, #075985 100%);
+      box-shadow: 0 12px 28px rgba(2, 132, 199, 0.5);
     }
 
     .btn-cyan-glass {
@@ -381,35 +381,35 @@
     }
 
     .btn-glass-alt {
-      background: rgba(255, 255, 255, 0.05);
-      border: 1px solid rgba(255, 255, 255, 0.15);
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.18);
       color: var(--text-primary);
     }
 
     .btn-glass-alt:hover {
-      background: rgba(255, 255, 255, 0.12);
-      border-color: rgba(255, 255, 255, 0.3);
-      box-shadow: 0 8px 22px rgba(0, 0, 0, 0.3);
+      background: rgba(255, 255, 255, 0.14);
+      border-color: rgba(255, 255, 255, 0.35);
+      box-shadow: 0 8px 22px rgba(0, 0, 0, 0.35);
     }
 
     .btn-danger-grad {
-      background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+      background: linear-gradient(135deg, #f43f5e 0%, #e11d48 100%);
       color: #ffffff;
       font-weight: 800;
-      box-shadow: 0 8px 22px rgba(239, 68, 68, 0.35);
+      box-shadow: 0 8px 22px rgba(244, 63, 94, 0.35);
       border: none;
     }
 
     .btn-danger-grad:hover {
-      background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
-      box-shadow: 0 12px 28px rgba(239, 68, 68, 0.5);
+      background: linear-gradient(135deg, #e11d48 0%, #be123c 100%);
+      box-shadow: 0 12px 28px rgba(244, 63, 94, 0.5);
     }
 
     /* Segmented Filter Control Bar */
     .segmented-tabs {
       display: inline-flex;
-      background: rgba(15, 23, 42, 0.95);
-      border: 1px solid rgba(255, 255, 255, 0.14);
+      background: rgba(11, 15, 25, 0.95);
+      border: 1px solid rgba(255, 255, 255, 0.16);
       border-radius: 0.85rem;
       padding: 0.25rem;
       gap: 0.25rem;
@@ -419,7 +419,7 @@
 
     .tab-btn {
       height: 36px;
-      padding: 0 1.15rem;
+      padding: 0 1.25rem;
       border-radius: 0.65rem;
       font-size: 0.88rem;
       font-weight: 700;
@@ -439,9 +439,9 @@
 
     .tab-btn.active {
       background: #38bdf8;
-      color: #070913;
+      color: #0b0f19;
       font-weight: 800;
-      box-shadow: 0 0 14px rgba(56, 189, 248, 0.4);
+      box-shadow: 0 0 16px rgba(56, 189, 248, 0.45);
     }
 
     /* Metric Cards Grid */
@@ -454,8 +454,8 @@
     .metric-card {
       background: var(--card-glass);
       border: 1px solid var(--card-border);
-      backdrop-filter: blur(14px);
-      border-radius: 1.2rem;
+      backdrop-filter: blur(16px);
+      border-radius: 1.25rem;
       padding: 1.5rem;
       display: flex;
       align-items: center;
@@ -468,8 +468,8 @@
 
     .metric-card:hover {
       transform: translateY(-3px);
-      border-color: rgba(16, 185, 129, 0.4);
-      box-shadow: 0 15px 35px rgba(0, 0, 0, 0.5), 0 0 20px rgba(16, 185, 129, 0.15);
+      border-color: rgba(56, 189, 248, 0.4);
+      box-shadow: 0 15px 35px rgba(0, 0, 0, 0.5), 0 0 20px rgba(56, 189, 248, 0.15);
     }
 
     .metric-icon-box {
@@ -500,10 +500,10 @@
     .icon-amber svg { fill: #fbbf24; }
 
     .icon-indigo {
-      background: linear-gradient(135deg, rgba(139, 92, 246, 0.25) 0%, rgba(139, 92, 246, 0.08) 100%);
-      border: 1px solid rgba(139, 92, 246, 0.4);
+      background: linear-gradient(135deg, rgba(99, 102, 241, 0.25) 0%, rgba(99, 102, 241, 0.08) 100%);
+      border: 1px solid rgba(99, 102, 241, 0.4);
     }
-    .icon-indigo svg { fill: #c084fc; }
+    .icon-indigo svg { fill: #a5b4fc; }
 
     .metric-info {
       display: flex;
@@ -535,7 +535,7 @@
       gap: 1rem;
       padding: 1.25rem 1.5rem;
       border-bottom: 1px solid var(--card-border);
-      background: rgba(7, 9, 19, 0.6);
+      background: rgba(11, 15, 25, 0.8);
     }
 
     .search-input-box {
@@ -546,10 +546,10 @@
 
     .search-input-box input {
       width: 100%;
-      background: rgba(15, 23, 42, 0.9);
-      border: 1px solid rgba(255, 255, 255, 0.15);
-      border-radius: 0.8rem;
-      padding: 0.7rem 1rem 0.7rem 2.75rem;
+      background: rgba(11, 15, 25, 0.95);
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      border-radius: 0.85rem;
+      padding: 0.75rem 1rem 0.75rem 2.85rem;
       color: var(--text-primary);
       font-size: 0.92rem;
       outline: none;
@@ -558,7 +558,7 @@
 
     .search-input-box input:focus {
       border-color: var(--accent-cyan);
-      box-shadow: 0 0 18px rgba(56, 189, 248, 0.25);
+      box-shadow: 0 0 20px rgba(56, 189, 248, 0.3);
     }
 
     .search-icon-svg {
@@ -588,10 +588,10 @@
     }
 
     th {
-      background: rgba(7, 9, 19, 0.95);
-      color: var(--text-muted);
-      font-size: 0.8rem;
-      font-weight: 700;
+      background: rgba(11, 15, 25, 0.98);
+      color: var(--accent-cyan);
+      font-size: 0.82rem;
+      font-weight: 800;
       text-transform: uppercase;
       letter-spacing: 0.08em;
       padding: 1.15rem 1.5rem;
@@ -600,7 +600,7 @@
 
     td {
       padding: 1.15rem 1.5rem;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
       font-size: 0.95rem;
       vertical-align: middle;
     }
@@ -610,7 +610,7 @@
     }
 
     tr:hover {
-      background: rgba(255, 255, 255, 0.045);
+      background: rgba(56, 189, 248, 0.04);
     }
 
     /* Role Badges */
@@ -645,7 +645,7 @@
       text-align: center;
       cursor: pointer;
       border-radius: 1.35rem;
-      background: rgba(15, 23, 42, 0.5);
+      background: rgba(11, 15, 25, 0.6);
       transition: all 0.3s ease;
       position: relative;
     }
@@ -729,14 +729,14 @@
         <p style="color:var(--text-secondary); font-size:0.92rem; margin-top:0.4rem;">Initializing session and fetching active group chats. Please wait...</p>
       </div>
 
-      <div id="qrBox" style="display:none; text-align:center; padding:1rem;">
-        <h3 style="color:var(--accent-cyan); font-size:1.3rem;">📱 Scan QR Code to Link WhatsApp Studio</h3>
-        <p style="color:var(--text-secondary); font-size:0.92rem; margin-top:0.4rem; margin-bottom:1rem;">Open WhatsApp on phone → Settings → Linked Devices → Link a Device</p>
-        <div class="qr-container" style="background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.12); border-radius:1.25rem; padding:1.25rem; display:inline-block; box-shadow:0 15px 35px rgba(0,0,0,0.4);">
-          <img id="qrImg" src="" alt="WhatsApp QR Code" style="width:220px; height:220px; border-radius:0.85rem; background:#fff; padding:10px; display:block;">
+      <div id="qrBox" style="display:none; text-align:center; padding:1.5rem 1rem;">
+        <h3 style="color:var(--accent-cyan); font-size:1.35rem; font-weight:800; margin-bottom:0.4rem;">📱 Scan QR Code to Link WhatsApp Studio</h3>
+        <p style="color:var(--text-secondary); font-size:0.95rem; margin-bottom:1.25rem;">Open WhatsApp on phone → Settings → Linked Devices → Link a Device</p>
+        <div class="qr-container" style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.15); border-radius:1.35rem; padding:1.35rem; display:inline-block; box-shadow:0 20px 40px rgba(0,0,0,0.5);">
+          <img id="qrImg" src="" alt="WhatsApp QR Code" style="width:230px; height:230px; border-radius:0.9rem; background:#fff; padding:10px; display:block;">
         </div>
-        <div id="qrCountdown" style="margin-top:1.25rem; font-size:0.95rem; font-weight:700; color:#38bdf8; background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.3); border-radius:20px; padding:8px 20px; display:inline-block; backdrop-filter:blur(10px);">
-          ⏳ Scan code with WhatsApp (Valid for <span id="qrTimerCount">4:00</span> mins)
+        <div style="margin-top:1.25rem; font-size:0.9rem; font-weight:600; color:#38bdf8; background:rgba(56,189,248,0.1); border:1px solid rgba(56,189,248,0.25); border-radius:20px; padding:8px 24px; display:inline-block; backdrop-filter:blur(10px);">
+          ✨ Ready for scan — point your phone camera at the QR code above
         </div>
       </div>
 
@@ -934,20 +934,8 @@
       return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
     }
 
-    function startQrCountdown(seconds = 240) {
-      if (qrTimerInterval) clearInterval(qrTimerInterval);
-      qrSecondsLeft = seconds;
-      const timerEl = document.getElementById('qrTimerCount');
-      if (timerEl) timerEl.innerText = formatQrTime(qrSecondsLeft);
-
-      qrTimerInterval = setInterval(() => {
-        qrSecondsLeft--;
-        if (timerEl) timerEl.innerText = formatQrTime(Math.max(0, qrSecondsLeft));
-        if (qrSecondsLeft <= 0) {
-          clearInterval(qrTimerInterval);
-          qrTimerInterval = null;
-        }
-      }, 1000);
+    function startQrCountdown() {
+      // Expiration timer display removed per preference
     }
 
     function renderQrCode(qrDataUrl) {
