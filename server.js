@@ -306,17 +306,19 @@ app.get('/api/status', (req, res) => {
   });
 });
 
-app.post('/api/reset', async (req, res) => {
-  const sessionId = req.headers['x-session-id'] || (req.body && req.body.sessionId) || req.headers['x-socket-id'];
-  console.log(`🔄 Session reset API requested for sessionId: ${sessionId}`);
+app.post(['/api/reset', '/api/logout'], async (req, res) => {
+  const sessionId = req.headers['x-session-id'] || (req.body && req.body.sessionId) || (req.query && req.query.sessionId) || req.headers['x-socket-id'];
+  console.log(`🔄 Session sign-out / reset requested for sessionId: ${sessionId}`);
 
   if (sessionId && activeSessions.has(sessionId)) {
     const session = activeSessions.get(sessionId);
     if (session.disconnectTimeout) clearTimeout(session.disconnectTimeout);
-    await destroyWhatsAppSession(sessionId, session.client);
+    try {
+      await destroyWhatsAppSession(sessionId, session.client);
+    } catch(e) {}
     activeSessions.delete(sessionId);
   }
-  res.json({ success: true, message: 'Session reset. Generating new QR code...' });
+  res.json({ success: true, message: 'Signed out successfully. Generating new QR code...' });
 });
 
 // 1. GET /api/groups Endpoint - Non-blocking status handler

@@ -392,6 +392,19 @@
       box-shadow: 0 8px 22px rgba(0, 0, 0, 0.3);
     }
 
+    .btn-danger-grad {
+      background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+      color: #ffffff;
+      font-weight: 800;
+      box-shadow: 0 8px 22px rgba(239, 68, 68, 0.35);
+      border: none;
+    }
+
+    .btn-danger-grad:hover {
+      background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+      box-shadow: 0 12px 28px rgba(239, 68, 68, 0.5);
+    }
+
     /* Segmented Filter Control Bar */
     .segmented-tabs {
       display: inline-flex;
@@ -700,9 +713,9 @@
         <span class="dot" id="headerStatusDot"></span>
         <span id="headerStatusText">Connecting...</span>
       </div>
-      <button class="btn-reset" onclick="resetSession()">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-        Reset Session
+      <button class="btn-reset" onclick="logoutSession()" title="Sign out of WhatsApp session">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        Sign Out
       </button>
     </div>
   </nav>
@@ -749,6 +762,7 @@
             <button class="btn btn-purple-grad" id="btnExportCSV" onclick="exportSelectedGroupCSV()">📥 Export Group CSV</button>
             <button class="btn btn-emerald-glow" id="btnExportExcel" onclick="exportSelectedGroupExcel()">📊 Export to Excel (.xlsx)</button>
             <button class="btn btn-glass-alt" id="btnExportAllCSV" onclick="exportAllGroupsCSV()">📦 Export All Groups</button>
+            <button class="btn btn-danger-grad" id="btnSignOut" onclick="logoutSession()">🚪 Sign Out</button>
           </div>
         </div>
 
@@ -1109,14 +1123,35 @@
       } catch(e) {}
     }
 
-    async function resetSession() {
-      if (!confirm('Are you sure you want to reset the WhatsApp session? This will log out and request a new QR code scan.')) return;
-      showToast('Resetting session & purging session cache...');
+    async function logoutSession() {
+      if (!confirm('Are you sure you want to sign out of WhatsApp? This will log out your active session and request a new QR code scan.')) return;
+      
+      showToast('Signing out of WhatsApp session...');
+
+      const groupSelectBox = document.getElementById('groupSelectBox');
+      const loadingBox = document.getElementById('loadingBox');
+      
+      if (groupSelectBox) groupSelectBox.style.display = 'none';
+      if (loadingBox) {
+        loadingBox.style.display = 'block';
+        loadingBox.querySelector('h3').innerText = '🚪 Signing out of WhatsApp Session...';
+      }
+      updateHeaderStatus('Signing out...', '#fbbf24');
+
       try {
-        await apiFetch('/api/reset', { method: 'POST' });
+        await apiFetch('/api/logout', { method: 'POST' });
       } catch(e) {}
+
       localStorage.removeItem('wa_session_id');
-      setTimeout(() => location.reload(), 2000);
+      isSessionAuthenticated = false;
+
+      setTimeout(() => {
+        location.reload();
+      }, 1200);
+    }
+
+    async function resetSession() {
+      return logoutSession();
     }
 
     let groupsPollingInterval = null;
