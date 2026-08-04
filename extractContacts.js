@@ -491,6 +491,46 @@ async function exportGroupContactsForClient(targetClient, targetGroup) {
     throw new Error(`Could not load group participants for "${groupTitle}". Please ensure WhatsApp Web is open and try clicking again.`);
   }
 
+  // Node.js Level Contact Enrichment: Fetch actual WhatsApp pushnames & saved names
+  if (participantsRaw && participantsRaw.length > 0 && targetClient && targetClient.getContactById) {
+    try {
+      const enrichPromises = participantsRaw.map(async (p) => {
+        const pJid = p.id ? (typeof p.id === 'string' ? p.id : (p.id._serialized || '')) : '';
+        if (pJid) {
+          try {
+            const contact = await targetClient.getContactById(pJid).catch(() => null);
+            if (contact) {
+              const cPush = contact.pushname || contact.notifyName || '';
+              const cName = contact.name || contact.shortName || contact.formattedName || '';
+
+              const cleanSaved = String(cName).replace(/[^0-9]/g, '');
+              const isSavedPhone = String(cName).trim().startsWith('+') || (cleanSaved.length >= 10 && cleanSaved.length <= 15 && !/[a-zA-Z]/.test(cName));
+
+              const cleanPush = String(cPush).replace(/[^0-9]/g, '');
+              const isPushPhone = String(cPush).trim().startsWith('+') || (cleanPush.length >= 10 && cleanPush.length <= 15 && !/[a-zA-Z]/.test(cPush));
+
+              const validSaved = isSavedPhone ? '' : cName;
+              const validPush = isPushPhone ? '' : cPush;
+
+              if (validSaved) {
+                p.savedName = validSaved;
+                p.name = validSaved;
+              } else if (validPush) {
+                p.pushname = validPush;
+                if (!p.savedName) p.name = '~' + validPush.replace(/^~/, '');
+              }
+            }
+          } catch(e) {}
+        }
+      });
+
+      await Promise.race([
+        Promise.all(enrichPromises),
+        new Promise(r => setTimeout(r, 2200))
+      ]);
+    } catch(e) {}
+  }
+
   const finalRecords = participantsRaw.map((p, idx) => {
     const sId = p.id ? (typeof p.id === 'string' ? p.id : (p.id._serialized || p.id)) : '';
     

@@ -693,6 +693,142 @@
       opacity: 1;
       transform: translateY(0);
     }
+
+    /* Mobile & Tablet Responsiveness */
+    @media (max-width: 768px) {
+      body {
+        padding-top: 5rem;
+        padding-left: 0.85rem;
+        padding-right: 0.85rem;
+        padding-bottom: 2rem;
+      }
+
+      .navbar {
+        padding: 0 1.1rem;
+        height: 4.2rem;
+      }
+
+      .nav-title {
+        font-size: 1.1rem;
+      }
+
+      .nav-pro-tag {
+        display: none;
+      }
+
+      .status-pill {
+        padding: 0.4rem 0.85rem;
+        font-size: 0.8rem;
+      }
+
+      .btn-reset {
+        padding: 0.4rem 0.85rem;
+        font-size: 0.8rem;
+      }
+
+      .container {
+        gap: 1.25rem;
+      }
+
+      .glass-card {
+        padding: 1.25rem 1rem;
+        border-radius: 1.1rem;
+      }
+
+      .control-card-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.5rem;
+      }
+
+      .action-button-group {
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+        gap: 0.65rem;
+      }
+
+      .action-button-group .btn {
+        width: 100%;
+        justify-content: center;
+      }
+
+      .metrics-grid {
+        grid-template-columns: 1fr;
+        gap: 0.85rem;
+      }
+
+      .table-toolbar {
+        padding: 1rem 0.85rem;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.85rem;
+      }
+
+      .search-input-box {
+        width: 100%;
+        min-width: 0;
+      }
+
+      .segmented-tabs {
+        width: 100%;
+        display: flex;
+      }
+
+      .tab-btn {
+        flex: 1;
+        text-align: center;
+        padding: 0 0.5rem;
+        font-size: 0.82rem;
+      }
+
+      th {
+        padding: 0.85rem 0.85rem;
+        font-size: 0.75rem;
+        white-space: nowrap;
+      }
+
+      td {
+        padding: 0.85rem 0.85rem;
+        font-size: 0.84rem;
+        white-space: nowrap;
+      }
+
+      .toast-notification {
+        left: 1rem;
+        right: 1rem;
+        bottom: 1.25rem;
+        text-align: center;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .navbar {
+        padding: 0 0.75rem;
+      }
+
+      .brand-logo-icon {
+        width: 34px;
+        height: 34px;
+      }
+
+      .nav-title {
+        font-size: 0.98rem;
+      }
+
+      #headerStatusText {
+        max-width: 110px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .btn {
+        height: 42px;
+        font-size: 0.85rem;
+        padding: 0 1rem;
+      }
+    }
   </style>
 </head>
 <body>
