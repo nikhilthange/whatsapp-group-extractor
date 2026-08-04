@@ -417,26 +417,36 @@ async function exportGroupContactsForClient(targetClient, targetGroup) {
                 if (u && u.length >= 7 && u.length <= 15) extractedPhone = u;
               }
 
-              let displayName = p.name || p.pushname || '';
+              let pushname = p.pushname || p.notifyName || '';
+              let savedName = p.name || p.formattedName || p.shortName || '';
+
               if (contactModel) {
-                displayName = contactModel.name || contactModel.formattedName || contactModel.pushname || contactModel.displayName || contactModel.shortName || displayName;
+                pushname = contactModel.pushname || contactModel.notifyName || pushname;
+                savedName = contactModel.name || contactModel.formattedName || contactModel.displayName || contactModel.shortName || contactModel.verifiedName || savedName;
               }
 
-              const cleanDigits = String(displayName || '').replace(/[^0-9]/g, '');
-              const isPhoneInName = String(displayName || '').trim().startsWith('+') || (cleanDigits.length >= 10 && cleanDigits.length <= 15 && !/[a-zA-Z]/.test(displayName));
-
-              if (isPhoneInName) {
-                if (!extractedPhone) {
-                  extractedPhone = cleanDigits;
-                }
+              const cleanSavedDigits = String(savedName || '').replace(/[^0-9]/g, '');
+              if (String(savedName || '').trim().startsWith('+') || (cleanSavedDigits.length >= 10 && cleanSavedDigits.length <= 15 && !/[a-zA-Z]/.test(savedName))) {
+                if (!extractedPhone) extractedPhone = cleanSavedDigits;
+                savedName = '';
               }
+
+              const cleanPushDigits = String(pushname || '').replace(/[^0-9]/g, '');
+              if (String(pushname || '').trim().startsWith('+') || (cleanPushDigits.length >= 10 && cleanPushDigits.length <= 15 && !/[a-zA-Z]/.test(pushname))) {
+                if (!extractedPhone) extractedPhone = cleanPushDigits;
+                pushname = '';
+              }
+
+              let finalName = savedName || (pushname ? ('~' + pushname.replace(/^~/, '')) : '');
 
               return {
                 id: rawId,
                 user: extractedPhone || (rawId.endsWith('@lid') ? '' : rawId.split('@')[0]),
                 phoneNum: extractedPhone,
                 isAdmin: Boolean(p.isAdmin || p.isSuperAdmin || p.role === 'admin' || p.role === 'superadmin'),
-                name: isPhoneInName ? '' : displayName
+                name: finalName,
+                pushname: pushname,
+                savedName: savedName
               };
             })
           };
@@ -466,7 +476,8 @@ async function exportGroupContactsForClient(targetClient, targetGroup) {
             id: typeof c.id === 'string' ? c.id : (c.id._serialized || ''),
             user: c.id ? (typeof c.id === 'string' ? c.id.split('@')[0] : (c.id.user || '')) : '',
             isAdmin: false,
-            name: c.formattedName || c.name || c.pushname || ''
+            name: c.formattedName || c.name || c.pushname || '',
+            pushname: c.pushname || c.notifyName || ''
           }));
       });
 
@@ -502,10 +513,10 @@ async function exportGroupContactsForClient(targetClient, targetGroup) {
 
     const isAdminRole = Boolean(p.isAdmin || p.isSuperAdmin || p.role === 'admin' || p.role === 'superadmin');
 
-    let displayName = p.name || p.pushname || (p.contact ? (p.contact.name || p.contact.pushname) : '');
+    let displayName = p.name || p.savedName || (p.pushname ? ('~' + p.pushname.replace(/^~/, '')) : '');
     
     if (!displayName || displayName === formattedPhone || displayName === cleanDigits || String(displayName).replace(/[^0-9]/g, '') === cleanDigits) {
-      displayName = formattedPhone !== 'N/A' ? formattedPhone : 'WhatsApp Contact';
+      displayName = p.pushname ? ('~' + p.pushname.replace(/^~/, '')) : '~WhatsApp User';
     }
 
     return {
