@@ -1456,6 +1456,25 @@
 
       const { jid, name } = groupInfo;
 
+      if (rawContacts && rawContacts.length > 0 && rawContacts[0].groupName === name) {
+        const csvRows = ['#,Name,Phone Number,Role,Group Name'];
+        rawContacts.forEach(r => {
+          csvRows.push(`${r.index},"${(r.name || '').replace(/"/g, '""')}","${r.phoneNumber || r.phone}","${r.role}","${(r.groupName || '').replace(/"/g, '""')}"`);
+        });
+        const blob = new Blob([csvRows.join('\n')], { type: 'text/csv' });
+        const safeName = name.replace(/[^a-zA-Z0-9_\-]/g, '_');
+        const filename = `whatsapp_${safeName}_contacts_${Date.now()}.csv`;
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+        return showToast(`Downloaded CSV: ${filename}`);
+      }
+
       document.getElementById('extractLoading').style.display = 'block';
       document.getElementById('extractLoading').innerText = `⏳ Exporting CSV for "${name}"... Please wait...`;
       document.getElementById('btnExportCSV').disabled = true;
@@ -1504,6 +1523,11 @@
       }
 
       const { jid, name } = groupInfo;
+
+      if (rawContacts && rawContacts.length > 0 && typeof exportExcel === 'function') {
+        exportExcel();
+        return showToast(`Downloaded Excel (.xlsx) for "${name}"`);
+      }
 
       document.getElementById('extractLoading').style.display = 'block';
       document.getElementById('extractLoading').innerText = `⏳ Exporting Excel (.xlsx) for "${name}"... Please wait...`;

@@ -373,15 +373,22 @@ app.post('/api/export', async (req, res) => {
     let recordsToExport = [];
 
     if (exportAll) {
-      const currentGroups = (session.groups && session.groups.length > 0) ? session.groups : await getGroupsWithRetry(session.client, 3, 2000);
-      for (const g of currentGroups) {
-        try {
-          const resData = await exportGroupContactsForClient(session.client, g);
-          recordsToExport.push(...resData.finalRecords);
-        } catch(e) {}
+      const currentGroups = (session.groups && session.groups.length > 0) ? session.groups : await getGroupsWithRetry(session.client, 3, 1500);
+      const chunkSize = 8;
+      for (let i = 0; i < currentGroups.length; i += chunkSize) {
+        const chunk = currentGroups.slice(i, i + chunkSize);
+        const chunkResults = await Promise.all(chunk.map(g => exportGroupContactsForClient(session.client, g).catch(() => null)));
+        chunkResults.forEach(resData => {
+          if (resData && resData.finalRecords) {
+            recordsToExport.push(...resData.finalRecords);
+          }
+        });
       }
     } else {
       const targetJid = groupId || groupJid;
+      if (!targetJid) {
+        return res.status(400).json({ error: 'Group ID is required.' });
+      }
       const resData = await exportGroupContactsForClient(session.client, { groupJid: targetJid, name });
       recordsToExport = resData.finalRecords;
     }
@@ -457,12 +464,16 @@ app.post('/api/export-excel', async (req, res) => {
     const targetJid = groupId || groupJid;
 
     if (exportAll) {
-      const currentGroups = (session.groups && session.groups.length > 0) ? session.groups : await getGroupsWithRetry(session.client, 3, 2000);
-      for (const g of currentGroups) {
-        try {
-          const resData = await exportGroupContactsForClient(session.client, g);
-          recordsToExport.push(...resData.finalRecords);
-        } catch(e) {}
+      const currentGroups = (session.groups && session.groups.length > 0) ? session.groups : await getGroupsWithRetry(session.client, 3, 1500);
+      const chunkSize = 8;
+      for (let i = 0; i < currentGroups.length; i += chunkSize) {
+        const chunk = currentGroups.slice(i, i + chunkSize);
+        const chunkResults = await Promise.all(chunk.map(g => exportGroupContactsForClient(session.client, g).catch(() => null)));
+        chunkResults.forEach(resData => {
+          if (resData && resData.finalRecords) {
+            recordsToExport.push(...resData.finalRecords);
+          }
+        });
       }
     } else if (targetJid) {
       const resData = await exportGroupContactsForClient(session.client, { groupJid: targetJid, name });

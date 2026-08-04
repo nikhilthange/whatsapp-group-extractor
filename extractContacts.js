@@ -138,83 +138,86 @@ async function destroyWhatsAppSession(sessionId, targetClient) {
   }
 }
 
-async function getGroupsWithRetry(targetClient, maxAttempts = 6, intervalMs = 2500) {
+async function getGroupsWithRetry(targetClient, maxAttempts = 5, intervalMs = 1500) {
   if (!targetClient) return [];
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      console.log(`[Groups Sync] Fetching chats (Attempt ${attempt}/${maxAttempts})...`);
       let groupChats = [];
 
-      // Attempt 1: Standard API call
-      try {
-        const chats = await targetClient.getChats().catch(() => []);
-        if (chats && chats.length > 0) {
-          groupChats = chats.filter(c => {
-            const jid = c.id ? (typeof c.id === 'string' ? c.id : (c.id._serialized || c._serialized || '')) : '';
-            return Boolean(c.isGroup || (c.id && c.id.server === 'g.us') || (jid && (jid.endsWith('@g.us') || jid.includes('@g.us'))));
-          });
-        }
-      } catch(e) {}
-
-      // Attempt 2: Direct In-Browser Store Evaluation Fallback (runs whenever groupChats is empty!)
-      if ((!groupChats || groupChats.length === 0) && targetClient.pupPage) {
+      // 1. Direct In-Browser Store Evaluation (Fastest & Most Complete)
+      if (targetClient.pupPage) {
         try {
-          const evaluatedGroups = await targetClient.pupPage.evaluate(() => {
+          const evaluated = await targetClient.pupPage.evaluate(() => {
             let models = [];
-            try {
-              if (window.require) {
+            if (window.Store && window.Store.Chat) {
+              models = typeof window.Store.Chat.getModelsArray === 'function'
+                ? window.Store.Chat.getModelsArray()
+                : Array.from(window.Store.Chat.models || window.Store.Chat._models || []);
+            }
+            if ((!models || models.length === 0) && window.require) {
+              try {
                 const collections = window.require('WAWebCollections');
                 if (collections && collections.Chat && typeof collections.Chat.getModelsArray === 'function') {
                   models = collections.Chat.getModelsArray();
                 }
-              }
-            } catch (e) {}
-
-            if (!models || models.length === 0) {
-              try {
-                if (window.Store && window.Store.Chat) {
-                  models = typeof window.Store.Chat.getModelsArray === 'function'
-                    ? window.Store.Chat.getModelsArray()
-                    : Array.from(window.Store.Chat.models || window.Store.Chat._models || []);
-                }
-              } catch (e) {}
+              } catch(e) {}
             }
 
-            return (models || [])
-              .map(c => {
-                const rawId = c.id ? (typeof c.id === 'string' ? c.id : (c.id._serialized || c.id.$1 || c.id.user || '')) : '';
-                const isGroup = Boolean(c.isGroup || (c.id && c.id.server === 'g.us') || (rawId && rawId.includes('@g.us')));
-                const pCount = c.groupMetadata && c.groupMetadata.participants ? c.groupMetadata.participants.length : (c.participants ? c.participants.length : 0);
-                return {
-                  id: rawId,
-                  isGroup: isGroup,
-                  name: c.formattedTitle || c.name || c.title || 'WhatsApp Group',
-                  participantsCount: pCount
-                };
-              })
-              .filter(c => Boolean(c.isGroup || (c.id && c.id.includes('@g.us'))));
+            return (models || []).map(c => {
+              const rawId = c.id ? (typeof c.id === 'string' ? c.id : (c.id._serialized || c.id.$1 || c.id.user || '')) : '';
+              const isGroup = Boolean(c.isGroup || (c.id && c.id.server === 'g.us') || (rawId && rawId.includes('@g.us')));
+              
+              let pCount = 0;
+              const pColl = (c.groupMetadata && c.groupMetadata.participants) || c.participants;
+              if (pColl) {
+                pCount = Array.isArray(pColl) ? pColl.length : (typeof pColl.getModelsArray === 'function' ? pColl.getModelsArray().length : (pColl.models ? pColl.models.length : 0));
+              }
+              return {
+                id: rawId,
+                groupJid: rawId,
+                isGroup: isGroup,
+                name: c.formattedTitle || c.name || c.title || 'WhatsApp Group',
+                memberCount: pCount,
+                count: pCount
+              };
+            }).filter(g => g.isGroup || (g.id && g.id.includes('@g.us')));
+
+            return evaluated;
           }).catch(() => []);
 
-          if (evaluatedGroups && evaluatedGroups.length > 0) {
-            groupChats = evaluatedGroups;
+          if (evaluated && evaluated.length > 0) {
+            groupChats = evaluated;
+          }
+        } catch(e) {}
+      }
+
+      // 2. Standard whatsapp-web.js API call fallback
+      if ((!groupChats || groupChats.length === 0) && targetClient.getChats) {
+        try {
+          const chats = await targetClient.getChats().catch(() => []);
+          if (chats && chats.length > 0) {
+            groupChats = chats.filter(c => {
+              const jid = c.id ? (typeof c.id === 'string' ? c.id : (c.id._serialized || c._serialized || '')) : '';
+              return Boolean(c.isGroup || (c.id && c.id.server === 'g.us') || (jid && jid.includes('@g.us')));
+            }).map(c => {
+              const jid = c.id ? (typeof c.id === 'string' ? c.id : (c.id._serialized || c._serialized || '')) : '';
+              const pCount = c.participantsCount !== undefined ? c.participantsCount : (c.participants ? c.participants.length : 0);
+              return {
+                id: jid,
+                groupJid: jid,
+                name: c.name || c.formattedTitle || 'WhatsApp Group',
+                memberCount: pCount,
+                count: pCount
+              };
+            });
           }
         } catch(e) {}
       }
 
       if (groupChats && groupChats.length > 0) {
         console.log(`[Groups Sync] Success! Found ${groupChats.length} group chats on attempt ${attempt}.`);
-        return groupChats.map(c => {
-          const jid = c.id ? (typeof c.id === 'string' ? c.id : (c.id._serialized || c._serialized || '')) : '';
-          const pCount = c.participantsCount !== undefined ? c.participantsCount : (c.participants ? c.participants.length : (c.groupMetadata ? (c.groupMetadata.participants ? c.groupMetadata.participants.length : 0) : 0));
-          return {
-            id: jid,
-            groupJid: jid,
-            name: c.name || c.formattedTitle || 'WhatsApp Group',
-            memberCount: pCount,
-            count: pCount
-          };
-        });
+        return groupChats;
       }
     } catch (err) {
       console.error(`Attempt ${attempt} group fetch error:`, err.message);
@@ -224,15 +227,16 @@ async function getGroupsWithRetry(targetClient, maxAttempts = 6, intervalMs = 25
       await new Promise(resolve => setTimeout(resolve, intervalMs));
     }
   }
+
   return [];
 }
 
 async function fetchUserGroups(targetClient, maxRetries = 5) {
-  return getGroupsWithRetry(targetClient, maxRetries, 3000);
+  return getGroupsWithRetry(targetClient, maxRetries, 1500);
 }
 
 async function getGroupListForClient(targetClient) {
-  return getGroupsWithRetry(targetClient, 5, 3000);
+  return getGroupsWithRetry(targetClient, 5, 1500);
 }
 
 async function exportGroupContactsForClient(targetClient, targetGroup) {
@@ -258,15 +262,14 @@ async function exportGroupContactsForClient(targetClient, targetGroup) {
     }
   } catch(e) {}
 
-  // 2. In-Browser Fast & Resilient Evaluation
+  // 2. Fast In-Browser Evaluation
   if ((!participantsRaw || participantsRaw.length === 0) && targetClient.pupPage) {
-    for (let attempt = 1; attempt <= 3; attempt++) {
+    for (let attempt = 1; attempt <= 2; attempt++) {
       try {
         const evalResult = await targetClient.pupPage.evaluate(async (gJid) => {
           let title = 'WhatsApp Group';
           let parts = [];
 
-          // Helper 0: Safe WID Factory
           let wid = gJid;
           try {
             if (typeof gJid === 'string' && window.Store && window.Store.WidFactory && typeof window.Store.WidFactory.createWid === 'function') {
@@ -274,50 +277,29 @@ async function exportGroupContactsForClient(targetClient, targetGroup) {
             }
           } catch(e) {}
 
-          // Method 1: Direct GroupMetadata.find() or .get()
+          // Method A: Check in-memory GroupMetadata or Chat first (0ms)
           if (window.Store && window.Store.GroupMetadata) {
             try {
-              let meta = null;
-              if (typeof window.Store.GroupMetadata.find === 'function') {
-                try {
-                  meta = await Promise.race([
-                    window.Store.GroupMetadata.find(wid),
-                    new Promise(r => setTimeout(() => r(null), 8000))
-                  ]);
-                } catch(e) {
-                  try {
-                    meta = await Promise.race([
-                      window.Store.GroupMetadata.find(gJid),
-                      new Promise(r => setTimeout(() => r(null), 8000))
-                    ]);
-                  } catch(err) {}
-                }
-              }
-              if (!meta && typeof window.Store.GroupMetadata.get === 'function') {
-                meta = window.Store.GroupMetadata.get(wid) || window.Store.GroupMetadata.get(gJid);
-              }
-              if (!meta && window.Store.GroupMetadata.models) {
+              let meta = typeof window.Store.GroupMetadata.get === 'function' ? (window.Store.GroupMetadata.get(wid) || window.Store.GroupMetadata.get(gJid)) : null;
+              if (!meta && (window.Store.GroupMetadata.models || window.Store.GroupMetadata._models)) {
                 const metaModels = Array.from(window.Store.GroupMetadata.models || window.Store.GroupMetadata._models || []);
                 meta = metaModels.find(m => {
                   const mid = m.id ? (typeof m.id === 'string' ? m.id : (m.id._serialized || m.id.user || '')) : '';
                   return mid === gJid || mid.includes(gJid) || gJid.includes(mid);
                 });
               }
-              if (meta) {
-                const pColl = meta.participants || (meta.groupMetadata && meta.groupMetadata.participants);
-                if (pColl) {
-                  parts = Array.isArray(pColl) ? pColl : (typeof pColl.getModelsArray === 'function' ? pColl.getModelsArray() : Array.from(pColl.models || pColl._models || pColl));
-                }
+              if (meta && meta.participants && meta.participants.length > 0) {
+                const pColl = meta.participants;
+                parts = Array.isArray(pColl) ? pColl : (typeof pColl.getModelsArray === 'function' ? pColl.getModelsArray() : Array.from(pColl.models || pColl._models || pColl));
                 title = meta.subject || meta.name || title;
               }
             } catch(e) {}
           }
 
-          // Method 2: Query Chat Store
           if ((!parts || parts.length === 0) && window.Store && window.Store.Chat) {
             try {
               let chatModel = typeof window.Store.Chat.get === 'function' ? (window.Store.Chat.get(wid) || window.Store.Chat.get(gJid)) : null;
-              if (!chatModel) {
+              if (!chatModel && (window.Store.Chat.models || window.Store.Chat._models)) {
                 const models = Array.from(window.Store.Chat.models || window.Store.Chat._models || []);
                 chatModel = models.find(m => {
                   const mid = m.id ? (typeof m.id === 'string' ? m.id : (m.id._serialized || m.id.user || '')) : '';
@@ -327,14 +309,30 @@ async function exportGroupContactsForClient(targetClient, targetGroup) {
               if (chatModel) {
                 title = chatModel.formattedTitle || chatModel.name || chatModel.title || title;
                 const pColl = (chatModel.groupMetadata && chatModel.groupMetadata.participants) || chatModel.participants;
-                if (pColl) {
+                if (pColl && pColl.length > 0) {
                   parts = Array.isArray(pColl) ? pColl : (typeof pColl.getModelsArray === 'function' ? pColl.getModelsArray() : Array.from(pColl.models || pColl._models || pColl));
                 }
               }
             } catch(e) {}
           }
 
-          // Method 3: Title matching across all Chat models
+          // Method B: Server fetch via GroupMetadata.find() if memory was empty
+          if ((!parts || parts.length === 0) && window.Store && window.Store.GroupMetadata && typeof window.Store.GroupMetadata.find === 'function') {
+            try {
+              let meta = await Promise.race([
+                window.Store.GroupMetadata.find(wid),
+                new Promise(r => setTimeout(() => r(null), 4000))
+              ]).catch(() => null);
+
+              if (meta && meta.participants) {
+                const pColl = meta.participants;
+                parts = Array.isArray(pColl) ? pColl : (typeof pColl.getModelsArray === 'function' ? pColl.getModelsArray() : Array.from(pColl.models || pColl._models || pColl));
+                title = meta.subject || meta.name || title;
+              }
+            } catch(e) {}
+          }
+
+          // Method C: Search all Chat models by title matching
           if (!parts || parts.length === 0) {
             try {
               const targetStr = String(gJid || '').toLowerCase().trim();
@@ -353,7 +351,7 @@ async function exportGroupContactsForClient(targetClient, targetGroup) {
             } catch(e) {}
           }
 
-          // Method 4: Extract from Message History (msg.author / msg.from)
+          // Method D: Extract from Message History (msg.author / msg.from)
           if (!parts || parts.length === 0) {
             try {
               const participantSet = new Map();
@@ -524,43 +522,46 @@ async function exportGroupContactsForClient(targetClient, targetGroup) {
     ];
   }
 
-  // Node.js Level Contact Enrichment: Fetch actual WhatsApp pushnames & saved names
+  // Fast Node.js Level Contact Enrichment for missing pushnames (Max 30 contacts to stay super fast)
   if (participantsRaw && participantsRaw.length > 0 && targetClient && targetClient.getContactById) {
     try {
-      const enrichPromises = participantsRaw.map(async (p) => {
-        const pJid = p.id ? (typeof p.id === 'string' ? p.id : (p.id._serialized || '')) : '';
-        if (pJid) {
-          try {
-            const contact = await targetClient.getContactById(pJid).catch(() => null);
-            if (contact) {
-              const cPush = contact.pushname || contact.notifyName || '';
-              const cName = contact.name || contact.shortName || contact.formattedName || '';
+      const needy = participantsRaw.filter(p => !p.name || p.name === '~WhatsApp User').slice(0, 30);
+      if (needy.length > 0) {
+        const enrichPromises = needy.map(async (p) => {
+          const pJid = p.id ? (typeof p.id === 'string' ? p.id : (p.id._serialized || '')) : '';
+          if (pJid) {
+            try {
+              const contact = await targetClient.getContactById(pJid).catch(() => null);
+              if (contact) {
+                const cPush = contact.pushname || contact.notifyName || '';
+                const cName = contact.name || contact.shortName || contact.formattedName || '';
 
-              const cleanSaved = String(cName).replace(/[^0-9]/g, '');
-              const isSavedPhone = String(cName).trim().startsWith('+') || (cleanSaved.length >= 10 && cleanSaved.length <= 15 && !/[a-zA-Z]/.test(cName));
+                const cleanSaved = String(cName).replace(/[^0-9]/g, '');
+                const isSavedPhone = String(cName).trim().startsWith('+') || (cleanSaved.length >= 10 && cleanSaved.length <= 15 && !/[a-zA-Z]/.test(cName));
 
-              const cleanPush = String(cPush).replace(/[^0-9]/g, '');
-              const isPushPhone = String(cPush).trim().startsWith('+') || (cleanPush.length >= 10 && cleanPush.length <= 15 && !/[a-zA-Z]/.test(cPush));
+                const cleanPush = String(cPush).replace(/[^0-9]/g, '');
+                const isPushPhone = String(cPush).trim().startsWith('+') || (cleanPush.length >= 10 && cleanPush.length <= 15 && !/[a-zA-Z]/.test(cPush));
 
-              const validSaved = isSavedPhone ? '' : cName;
-              const validPush = isPushPhone ? '' : cPush;
+                const validSaved = isSavedPhone ? '' : cName;
+                const validPush = isPushPhone ? '' : cPush;
 
-              if (validSaved) {
-                p.savedName = validSaved;
-                p.name = validSaved;
-              } else if (validPush) {
-                p.pushname = validPush;
-                if (!p.savedName) p.name = '~' + validPush.replace(/^~/, '');
+                if (validSaved) {
+                  p.savedName = validSaved;
+                  p.name = validSaved;
+                } else if (validPush) {
+                  p.pushname = validPush;
+                  if (!p.savedName) p.name = '~' + validPush.replace(/^~/, '');
+                }
               }
-            }
-          } catch(e) {}
-        }
-      });
+            } catch(e) {}
+          }
+        });
 
-      await Promise.race([
-        Promise.all(enrichPromises),
-        new Promise(r => setTimeout(r, 2200))
-      ]);
+        await Promise.race([
+          Promise.all(enrichPromises),
+          new Promise(r => setTimeout(r, 1000))
+        ]);
+      }
     } catch(e) {}
   }
 
