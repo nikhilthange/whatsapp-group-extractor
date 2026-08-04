@@ -247,127 +247,70 @@ async function exportGroupContactsForClient(targetClient, targetGroup) {
   let participantsRaw = [];
   let groupTitle = (targetGroup && targetGroup.name) || 'WhatsApp Group';
 
-  for (let attempt = 1; attempt <= 4; attempt++) {
-    // Attempt A: Standard client.getChatById()
-    try {
-      const chat = await targetClient.getChatById(targetJid).catch(() => null);
-      if (chat) {
-        if (chat.name) groupTitle = chat.name;
-        if (chat.participants && chat.participants.length > 0) {
-          participantsRaw = chat.participants;
-        }
+  // 1. Direct standard API check
+  try {
+    const chat = await targetClient.getChatById(targetJid).catch(() => null);
+    if (chat) {
+      if (chat.name) groupTitle = chat.name;
+      if (chat.participants && chat.participants.length > 0) {
+        participantsRaw = chat.participants;
       }
-    } catch(e) {}
+    }
+  } catch(e) {}
 
-    // Attempt B: In-Browser Page Evaluation querying WAWebCollections, Store.Chat, and Store.GroupMetadata
-    if ((!participantsRaw || participantsRaw.length === 0) && targetClient.pupPage) {
+  // 2. In-Browser Fast Evaluation (Direct GroupMetadata fetch + Store query)
+  if ((!participantsRaw || participantsRaw.length === 0) && targetClient.pupPage) {
+    for (let attempt = 1; attempt <= 2; attempt++) {
       try {
-        const evalPromise = targetClient.pupPage.evaluate(async (gJid) => {
+        const evalResult = await safeEvaluate(async (gJid) => {
           let title = 'WhatsApp Group';
           let parts = [];
 
-          // Helper 1: Query Chat Collection / Store
-          let chatModel = null;
-          try {
-            if (window.require) {
-              const collections = window.require('WAWebCollections');
-              if (collections && collections.Chat && typeof collections.Chat.get === 'function') {
-                chatModel = collections.Chat.get(gJid);
-              }
-            }
-          } catch(e) {}
-
-          if (!chatModel && window.Store && window.Store.Chat) {
+          // Primary & Most Reliable Method: Direct GroupMetadata.find() from WhatsApp Web Store
+          if (window.Store && window.Store.GroupMetadata) {
             try {
-              if (typeof window.Store.Chat.get === 'function') {
-                chatModel = window.Store.Chat.get(gJid);
-              } else {
+              let meta = null;
+              if (typeof window.Store.GroupMetadata.find === 'function') {
+                meta = await Promise.race([
+                  window.Store.GroupMetadata.find(gJid),
+                  new Promise(resolve => setTimeout(() => resolve(null), 8000))
+                ]);
+              }
+              if (!meta && typeof window.Store.GroupMetadata.get === 'function') {
+                meta = window.Store.GroupMetadata.get(gJid);
+              }
+              if (meta) {
+                const pColl = meta.participants || (meta.groupMetadata && meta.groupMetadata.participants);
+                if (pColl) {
+                  parts = Array.isArray(pColl) ? pColl : (typeof pColl.getModelsArray === 'function' ? pColl.getModelsArray() : Array.from(pColl.models || pColl._models || pColl));
+                }
+                title = meta.subject || meta.name || title;
+              }
+            } catch(e) {}
+          }
+
+          // Fallback A: Query Chat Store
+          if ((!parts || parts.length === 0) && window.Store && window.Store.Chat) {
+            try {
+              let chatModel = typeof window.Store.Chat.get === 'function' ? window.Store.Chat.get(gJid) : null;
+              if (!chatModel) {
                 const models = Array.from(window.Store.Chat.models || window.Store.Chat._models || []);
                 chatModel = models.find(m => {
-                  const mid = m.id ? (typeof m.id === 'string' ? m.id : (m.id._serialized || m.id.$1 || m.id.user || '')) : '';
+                  const mid = m.id ? (typeof m.id === 'string' ? m.id : (m.id._serialized || m.id.user || '')) : '';
                   return mid === gJid || mid.includes(gJid) || gJid.includes(mid);
                 });
               }
-            } catch(e) {}
-          }
-
-          if (chatModel) {
-            title = chatModel.formattedTitle || chatModel.name || chatModel.title || title;
-            if (chatModel.groupMetadata && chatModel.groupMetadata.participants) {
-              const pColl = chatModel.groupMetadata.participants;
-              parts = typeof pColl.getModelsArray === 'function'
-                ? pColl.getModelsArray()
-                : (pColl.models || pColl._models || Array.from(pColl));
-            } else if (chatModel.participants) {
-              const pColl = chatModel.participants;
-              parts = typeof pColl.getModelsArray === 'function'
-                ? pColl.getModelsArray()
-                : (pColl.models || pColl._models || Array.from(pColl));
-            }
-          }
-
-          // Helper 2: Query GroupMetadata Collection / Store if participants empty
-          if (!parts || parts.length === 0) {
-            try {
-              let metaModel = null;
-              if (window.Store && window.Store.GroupMetadata) {
-                if (typeof window.Store.GroupMetadata.get === 'function') {
-                  metaModel = window.Store.GroupMetadata.get(gJid);
-                }
-                if (!metaModel) {
-                  const metaModels = typeof window.Store.GroupMetadata.getModelsArray === 'function'
-                    ? window.Store.GroupMetadata.getModelsArray()
-                    : Array.from(window.Store.GroupMetadata.models || window.Store.GroupMetadata._models || []);
-                  metaModel = metaModels.find(m => {
-                    const mid = m.id ? (typeof m.id === 'string' ? m.id : (m.id._serialized || m.id.$1 || m.id.user || '')) : '';
-                    return mid === gJid || mid.includes(gJid) || gJid.includes(mid);
-                  });
-                }
-              }
-              if (metaModel && metaModel.participants) {
-                const pColl = metaModel.participants;
-                parts = typeof pColl.getModelsArray === 'function'
-                  ? pColl.getModelsArray()
-                  : (pColl.models || pColl._models || Array.from(pColl));
-              }
-            } catch(e) {}
-          }
-
-          // Helper 3: Active Server Fetch via Store.GroupMetadata.find() with 2.5s Timeout
-          if ((!parts || parts.length === 0) && window.Store && window.Store.GroupMetadata && typeof window.Store.GroupMetadata.find === 'function') {
-            try {
-              const fetchedMeta = await Promise.race([
-                window.Store.GroupMetadata.find(gJid),
-                new Promise(resolve => setTimeout(() => resolve(null), 2500))
-              ]);
-              if (fetchedMeta && fetchedMeta.participants) {
-                parts = Array.from(fetchedMeta.participants);
-              }
-            } catch(e) {}
-          }
-
-          // Helper 4: Search all Chat models by partial or numeric JID matching
-          if (!parts || parts.length === 0) {
-            try {
-              const cleanNum = gJid.replace(/[^0-9]/g, '');
-              const allModels = Array.from((window.Store && window.Store.Chat && (window.Store.Chat.models || window.Store.Chat._models)) || []);
-              for (const m of allModels) {
-                const mid = m.id ? (typeof m.id === 'string' ? m.id : (m.id._serialized || m.id.$1 || m.id.user || '')) : '';
-                if ((cleanNum && mid.includes(cleanNum)) || (m.formattedTitle && gJid.includes(m.formattedTitle))) {
-                  title = m.formattedTitle || m.name || title;
-                  if (m.groupMetadata && m.groupMetadata.participants) {
-                    parts = Array.from(m.groupMetadata.participants);
-                    break;
-                  } else if (m.participants) {
-                    parts = Array.from(m.participants);
-                    break;
-                  }
+              if (chatModel) {
+                title = chatModel.formattedTitle || chatModel.name || chatModel.title || title;
+                const pColl = (chatModel.groupMetadata && chatModel.groupMetadata.participants) || chatModel.participants;
+                if (pColl) {
+                  parts = Array.isArray(pColl) ? pColl : (typeof pColl.getModelsArray === 'function' ? pColl.getModelsArray() : Array.from(pColl.models || pColl._models || pColl));
                 }
               }
             } catch(e) {}
           }
 
-          // Helper 5: Search all Chat models by formatted title string matching (e.g. "college")
+          // Fallback B: Search all Chat models by title matching
           if (!parts || parts.length === 0) {
             try {
               const targetStr = String(gJid || '').toLowerCase().trim();
@@ -376,11 +319,9 @@ async function exportGroupContactsForClient(targetClient, targetGroup) {
                 const mTitle = String(m.formattedTitle || m.name || m.title || '').toLowerCase().trim();
                 if (mTitle && (mTitle === targetStr || mTitle.includes(targetStr) || targetStr.includes(mTitle))) {
                   title = m.formattedTitle || m.name || title;
-                  if (m.groupMetadata && m.groupMetadata.participants) {
-                    parts = Array.from(m.groupMetadata.participants);
-                    break;
-                  } else if (m.participants) {
-                    parts = Array.from(m.participants);
+                  const pColl = (m.groupMetadata && m.groupMetadata.participants) || m.participants;
+                  if (pColl) {
+                    parts = Array.from(pColl);
                     break;
                   }
                 }
@@ -388,7 +329,7 @@ async function exportGroupContactsForClient(targetClient, targetGroup) {
             } catch(e) {}
           }
 
-          // Helper 6: Extract from Message History (msg.author / msg.from) if groupMetadata was empty
+          // Fallback C: Extract from Message History (msg.author / msg.from)
           if (!parts || parts.length === 0) {
             try {
               const participantSet = new Map();
@@ -398,7 +339,7 @@ async function exportGroupContactsForClient(targetClient, targetGroup) {
                 const msgChatId = m.id ? (typeof m.id === 'string' ? m.id : (m.id.remote || m.id._serialized || '')) : (m.from || '');
                 if (msgChatId.includes(gJid) || gJid.includes(msgChatId) || (cleanNum && msgChatId.includes(cleanNum))) {
                   const senderJid = m.author || m.from || (m.id && m.id.participant ? (typeof m.id.participant === 'string' ? m.id.participant : m.id.participant._serialized) : '');
-                  if (senderJid && senderJid.endsWith('@c.us') && !participantSet.has(senderJid)) {
+                  if (senderJid && (senderJid.endsWith('@c.us') || senderJid.endsWith('@s.whatsapp.net') || senderJid.endsWith('@lid')) && !participantSet.has(senderJid)) {
                     participantSet.set(senderJid, {
                       id: senderJid,
                       user: senderJid.split('@')[0],
@@ -423,7 +364,6 @@ async function exportGroupContactsForClient(targetClient, targetGroup) {
                 pnJid = typeof p.pnJid === 'string' ? p.pnJid : (p.pnJid._serialized || p.pnJid.user || '');
               }
 
-              // Query Store.Contact model
               let contactModel = null;
               try {
                 if (window.Store && window.Store.Contact) {
@@ -442,16 +382,13 @@ async function exportGroupContactsForClient(targetClient, targetGroup) {
               } catch(e) {}
               if (!contactModel && p.contact) contactModel = p.contact;
 
-              // Determine real phone number digits
               let extractedPhone = '';
 
-              // A) Try PN JID
               if (pnJid) {
                 const u = pnJid.split('@')[0].replace(/[^0-9]/g, '');
                 if (u && u.length >= 7 && u.length <= 15) extractedPhone = u;
               }
 
-              // B) Try Contact model
               if (!extractedPhone && contactModel) {
                 if (contactModel.id) {
                   const cid = typeof contactModel.id === 'string' ? contactModel.id : (contactModel.id._serialized || '');
@@ -475,19 +412,16 @@ async function exportGroupContactsForClient(targetClient, targetGroup) {
                 }
               }
 
-              // C) Try rawId if it is a phone number JID (@c.us or @s.whatsapp.net)
               if (!extractedPhone && rawId && (rawId.endsWith('@c.us') || rawId.endsWith('@s.whatsapp.net') || (!rawId.endsWith('@lid') && !rawId.includes('@lid')))) {
                 const u = rawId.split('@')[0].replace(/[^0-9]/g, '');
                 if (u && u.length >= 7 && u.length <= 15) extractedPhone = u;
               }
 
-              // Extract Name
               let displayName = p.name || p.pushname || '';
               if (contactModel) {
                 displayName = contactModel.name || contactModel.formattedName || contactModel.pushname || contactModel.displayName || contactModel.shortName || displayName;
               }
 
-              // D) Check if displayName is actually a phone number string (e.g. "+919324708851")
               const cleanDigits = String(displayName || '').replace(/[^0-9]/g, '');
               const isPhoneInName = String(displayName || '').trim().startsWith('+') || (cleanDigits.length >= 10 && cleanDigits.length <= 15 && !/[a-zA-Z]/.test(displayName));
 
@@ -508,32 +442,23 @@ async function exportGroupContactsForClient(targetClient, targetGroup) {
           };
         }, targetJid);
 
-        const timeoutPromise = new Promise(resolve => setTimeout(() => resolve(null), 5000));
-        const evalResult = await Promise.race([evalPromise, timeoutPromise]).catch(() => null);
-
         if (evalResult) {
           if (evalResult.title && evalResult.title !== 'WhatsApp Group') groupTitle = evalResult.title;
           if (evalResult.participants && evalResult.participants.length > 0) {
             participantsRaw = evalResult.participants;
+            break;
           }
         }
       } catch(e) {
         console.warn(`[Group Contacts Sync] Page eval error on attempt ${attempt}:`, e.message);
       }
     }
-
-    if (participantsRaw && participantsRaw.length > 0) break;
-
-    if (attempt < 4) {
-      console.log(`[Group Contacts Sync] Attempt ${attempt}/4: Participants not yet loaded for group "${groupTitle}" (${targetJid}). Retrying in 1.5s...`);
-      await new Promise(r => setTimeout(r, 1500));
-    }
   }
 
   // Final Fallback: Query all active contacts in Store if group participants were unindexed
   if ((!participantsRaw || participantsRaw.length === 0) && targetClient.pupPage) {
     try {
-      const contactList = await targetClient.pupPage.evaluate(() => {
+      const contactList = await safeEvaluate(() => {
         const contacts = Array.from((window.Store && window.Store.Contact && (window.Store.Contact.models || window.Store.Contact._models)) || []);
         return contacts
           .filter(c => c.id && ((typeof c.id === 'string' && c.id.endsWith('@c.us')) || (c.id.server === 'c.us')))
@@ -543,25 +468,16 @@ async function exportGroupContactsForClient(targetClient, targetGroup) {
             isAdmin: false,
             name: c.formattedName || c.name || c.pushname || ''
           }));
-      }).catch(() => []);
+      });
 
       if (contactList && contactList.length > 0) {
-        participantsRaw = contactList.slice(0, 100);
+        participantsRaw = contactList;
       }
     } catch(e) {}
   }
 
-  // Guarantee non-empty records so extraction never throws or fails
   if (!participantsRaw || participantsRaw.length === 0) {
-    const defaultUserPhone = (targetClient && targetClient.info && targetClient.info.wid) ? targetClient.info.wid.user : '';
-    participantsRaw = [
-      {
-        id: defaultUserPhone ? defaultUserPhone + '@c.us' : 'admin@c.us',
-        user: defaultUserPhone || 'WhatsApp Admin',
-        isAdmin: true,
-        name: defaultUserPhone ? '+' + defaultUserPhone + ' (Group Admin)' : 'Group Admin'
-      }
-    ];
+    throw new Error(`Could not load group participants for "${groupTitle}". Please ensure WhatsApp Web is open and try clicking again.`);
   }
 
   const finalRecords = participantsRaw.map((p, idx) => {
