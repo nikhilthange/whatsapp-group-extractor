@@ -260,9 +260,9 @@ async function exportGroupContactsForClient(targetClient, targetGroup) {
 
   // 2. In-Browser Fast Evaluation (Direct GroupMetadata fetch + Store query)
   if ((!participantsRaw || participantsRaw.length === 0) && targetClient.pupPage) {
-    for (let attempt = 1; attempt <= 2; attempt++) {
+    for (let attempt = 1; attempt <= 3; attempt++) {
       try {
-        const evalResult = await safeEvaluate(async (gJid) => {
+        const evalResult = await targetClient.pupPage.evaluate(async (gJid) => {
           let title = 'WhatsApp Group';
           let parts = [];
 
@@ -273,7 +273,7 @@ async function exportGroupContactsForClient(targetClient, targetGroup) {
               if (typeof window.Store.GroupMetadata.find === 'function') {
                 meta = await Promise.race([
                   window.Store.GroupMetadata.find(gJid),
-                  new Promise(resolve => setTimeout(() => resolve(null), 8000))
+                  new Promise(resolve => setTimeout(() => resolve(null), 12000))
                 ]);
               }
               if (!meta && typeof window.Store.GroupMetadata.get === 'function') {
@@ -468,7 +468,7 @@ async function exportGroupContactsForClient(targetClient, targetGroup) {
   // Final Fallback: Query all active contacts in Store if group participants were unindexed
   if ((!participantsRaw || participantsRaw.length === 0) && targetClient.pupPage) {
     try {
-      const contactList = await safeEvaluate(() => {
+      const contactList = await targetClient.pupPage.evaluate(() => {
         const contacts = Array.from((window.Store && window.Store.Contact && (window.Store.Contact.models || window.Store.Contact._models)) || []);
         return contacts
           .filter(c => c.id && ((typeof c.id === 'string' && c.id.endsWith('@c.us')) || (c.id.server === 'c.us')))
@@ -479,7 +479,7 @@ async function exportGroupContactsForClient(targetClient, targetGroup) {
             name: c.formattedName || c.name || c.pushname || '',
             pushname: c.pushname || c.notifyName || ''
           }));
-      });
+      }).catch(() => []);
 
       if (contactList && contactList.length > 0) {
         participantsRaw = contactList;
