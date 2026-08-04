@@ -1140,6 +1140,20 @@
       } catch(e) {}
     }
 
+    let selectedGroupJid = '';
+
+    function getGroupJid(g) {
+      if (!g) return '';
+      if (typeof g === 'string') return g;
+      if (typeof g.id === 'string') return g.id;
+      if (g.id && typeof g.id === 'object' && g.id._serialized) return g.id._serialized;
+      if (g.id && typeof g.id === 'object' && g.id.user) return g.id.user + '@g.us';
+      if (typeof g.groupJid === 'string') return g.groupJid;
+      if (g.groupJid && typeof g.groupJid === 'object' && g.groupJid._serialized) return g.groupJid._serialized;
+      if (g._serialized) return g._serialized;
+      return '';
+    }
+
     function populateGroupDropdown(groups) {
       if (!isSessionAuthenticated) {
         console.log('🛡️ Suppressed group dropdown population because session is not authenticated.');
@@ -1153,21 +1167,7 @@
       const totalEl = document.getElementById('statTotalGroups') || document.getElementById('totalGroupsCount');
       if (totalEl) totalEl.innerText = fetchedGroupsList.length;
 
-      const select = document.getElementById('groupSelect');
-      if (select) {
-        select.innerHTML = '<option value="">-- Select a WhatsApp Group Chat --</option>';
-
-        fetchedGroupsList.forEach(g => {
-          const opt = document.createElement('option');
-          opt.value = g.id || g.groupJid;
-          const count = g.memberCount || g.count || 0;
-          const memberText = count ? ` (${count} members)` : '';
-          opt.textContent = `${g.name}${memberText}`;
-          select.appendChild(opt);
-        });
-      }
-
-      onGroupSelectionChange();
+      filterGroupDropdown();
     }
 
     function filterGroupDropdown() {
@@ -1180,23 +1180,46 @@
         ? fetchedGroupsList.filter(g => (g.name || '').toLowerCase().includes(query))
         : fetchedGroupsList;
 
+      const prevJid = selectedGroupJid || select.value;
+
       select.innerHTML = '<option value="">-- Select a WhatsApp Group Chat --</option>';
 
       filtered.forEach(g => {
+        const jid = getGroupJid(g);
+        if (!jid) return;
         const opt = document.createElement('option');
-        opt.value = g.id || g.groupJid;
+        opt.value = jid;
         const count = g.memberCount || g.count || 0;
         const memberText = count ? ` (${count} members)` : '';
         opt.textContent = `${g.name}${memberText}`;
         select.appendChild(opt);
       });
 
+      if (prevJid && filtered.some(g => getGroupJid(g) === prevJid)) {
+        select.value = prevJid;
+        selectedGroupJid = prevJid;
+      } else if (filtered.length === 1 && query.length > 0) {
+        const singleJid = getGroupJid(filtered[0]);
+        select.value = singleJid;
+        selectedGroupJid = singleJid;
+      } else if (filtered.length === 1 && !prevJid) {
+        const singleJid = getGroupJid(filtered[0]);
+        select.value = singleJid;
+        selectedGroupJid = singleJid;
+      }
+
       onGroupSelectionChange();
     }
 
     function onGroupSelectionChange() {
       const select = document.getElementById('groupSelect');
-      const jid = select.value;
+      let jid = select.value;
+      if (!jid && select.selectedIndex > 0) {
+        jid = select.options[select.selectedIndex]?.value || '';
+      }
+
+      selectedGroupJid = jid;
+
       if (!jid) {
         document.getElementById('statSelectedGroup').innerText = 'None Selected';
         document.getElementById('statMemberCount').innerText = rawContacts.length || '0';
@@ -1204,22 +1227,43 @@
       }
 
       const selectedOpt = select.options[select.selectedIndex];
-      const gObj = fetchedGroupsList.find(g => (g.id || g.groupJid) === jid);
+      const gObj = fetchedGroupsList.find(g => getGroupJid(g) === jid);
 
-      document.getElementById('statSelectedGroup').innerText = gObj ? gObj.name : selectedOpt.text.split(' (')[0];
-      document.getElementById('statMemberCount').innerText = gObj && gObj.memberCount ? gObj.memberCount : (rawContacts.length || 'Ready');
+      document.getElementById('statSelectedGroup').innerText = gObj ? gObj.name : (selectedOpt ? selectedOpt.text.split(' (')[0] : 'Selected Group');
+      document.getElementById('statMemberCount').innerText = gObj && (gObj.memberCount || gObj.count) ? (gObj.memberCount || gObj.count) : (rawContacts.length || 'Ready');
+    }
+
+    function getCurrentlySelectedGroupInfo() {
+      const select = document.getElementById('groupSelect');
+      let jid = select.value || selectedGroupJid;
+
+      if (!jid && select.selectedIndex > 0) {
+        jid = select.options[select.selectedIndex]?.value || '';
+      }
+      if (!jid && select.options.length === 2) {
+        jid = select.options[1].value;
+        select.selectedIndex = 1;
+      }
+
+      if (!jid) return null;
+
+      const selectedGroup = fetchedGroupsList.find(g => getGroupJid(g) === jid);
+      const optText = select.options[select.selectedIndex]?.text || '';
+      const name = selectedGroup ? selectedGroup.name : (optText ? optText.split(' (')[0] : 'WhatsApp Group');
+
+      return { jid, name, group: selectedGroup };
     }
 
     async function extractSelectedGroup() {
-      const select = document.getElementById('groupSelect');
-      const jid = select.value;
-      const selectedGroup = fetchedGroupsList.find(g => (g.id || g.groupJid) === jid);
-      const name = selectedGroup ? selectedGroup.name : select.options[select.selectedIndex]?.text;
+      const groupInfo = getCurrentlySelectedGroupInfo();
+      if (!groupInfo || !groupInfo.jid) {
+        return alert('Please select a WhatsApp group from the dropdown.');
+      }
 
-      if (!jid) return alert('Please select a WhatsApp group from the dropdown.');
+      const { jid, name } = groupInfo;
 
       document.getElementById('extractLoading').style.display = 'block';
-      document.getElementById('extractLoading').innerText = '⏳ Extracting contacts from WhatsApp Web... Please wait...';
+      document.getElementById('extractLoading').innerText = `⏳ Extracting contacts for "${name}"... Please wait...`;
       document.getElementById('btnExtract').disabled = true;
 
       try {
@@ -1233,7 +1277,7 @@
         if (data.success && data.contacts) {
           rawContacts = data.contacts;
           updateUI();
-          showToast(`Successfully extracted ${data.contacts.length} contacts!`);
+          showToast(`Successfully extracted ${data.contacts.length} contacts for "${name}"!`);
         } else {
           alert('Extraction failed: ' + (data.error || 'Unknown error'));
         }
@@ -1246,12 +1290,12 @@
     }
 
     async function exportSelectedGroupCSV() {
-      const select = document.getElementById('groupSelect');
-      const jid = select.value;
-      const selectedGroup = fetchedGroupsList.find(g => (g.id || g.groupJid) === jid);
-      const name = selectedGroup ? selectedGroup.name : select.options[select.selectedIndex]?.text;
+      const groupInfo = getCurrentlySelectedGroupInfo();
+      if (!groupInfo || !groupInfo.jid) {
+        return alert('Please select a WhatsApp group from the dropdown.');
+      }
 
-      if (!jid) return alert('Please select a WhatsApp group from the dropdown.');
+      const { jid, name } = groupInfo;
 
       document.getElementById('extractLoading').style.display = 'block';
       document.getElementById('extractLoading').innerText = `⏳ Exporting CSV for "${name}"... Please wait...`;
@@ -1295,12 +1339,12 @@
     }
 
     async function exportSelectedGroupExcel() {
-      const select = document.getElementById('groupSelect');
-      const jid = select.value;
-      const selectedGroup = fetchedGroupsList.find(g => (g.id || g.groupJid) === jid);
-      const name = selectedGroup ? selectedGroup.name : select.options[select.selectedIndex]?.text;
+      const groupInfo = getCurrentlySelectedGroupInfo();
+      if (!groupInfo || !groupInfo.jid) {
+        return alert('Please select a WhatsApp group from the dropdown.');
+      }
 
-      if (!jid) return alert('Please select a WhatsApp group from the dropdown.');
+      const { jid, name } = groupInfo;
 
       document.getElementById('extractLoading').style.display = 'block';
       document.getElementById('extractLoading').innerText = `⏳ Exporting Excel (.xlsx) for "${name}"... Please wait...`;
