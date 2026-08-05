@@ -552,10 +552,13 @@ async function exportGroupContactsForClient(targetClient, targetGroup) {
 
     const isAdminRole = Boolean(p.isAdmin || p.isSuperAdmin || p.role === 'admin' || p.role === 'superadmin');
 
-    let displayName = p.name || p.savedName || (p.pushname ? ('~' + p.pushname.replace(/^~/, '')) : '');
+    const pushNameStr = (p.pushname || '').replace(/^~/, '').trim();
+    const savedNameStr = (p.savedName || '').trim();
+
+    let displayName = p.name || savedNameStr || (pushNameStr ? ('~' + pushNameStr) : '');
     
     if (!displayName || displayName === formattedPhone || displayName === cleanDigits || String(displayName).replace(/[^0-9]/g, '') === cleanDigits) {
-      displayName = p.pushname ? ('~' + p.pushname.replace(/^~/, '')) : '~WhatsApp User';
+      displayName = pushNameStr ? ('~' + pushNameStr) : '~WhatsApp User';
     }
 
     return {
@@ -565,6 +568,8 @@ async function exportGroupContactsForClient(targetClient, targetGroup) {
       phone: formattedPhone,
       phoneNumber: formattedPhone,
       name: displayName,
+      pushname: pushNameStr || 'N/A',
+      savedName: savedNameStr || 'N/A',
       isAdmin: isAdminRole ? 'Yes' : 'No',
       role: isAdminRole ? 'Group Admin' : 'Member',
       groupName: groupTitle
@@ -647,10 +652,10 @@ async function exportGroupContacts(targetGroup) {
   const excelFilePath = path.join(__dirname, excelFilename);
 
   // Build Excel (.xlsx) Worksheet with Headers & Auto Column Widths
-  const excelHeaders = ['PHONE_NUMBER', 'NAME', 'IS_ADMIN', 'USER_JID'];
+  const excelHeaders = ['PHONE_NUMBER', 'NAME', 'WHATSAPP_PROFILE_NAME', 'IS_ADMIN', 'USER_JID'];
   const excelData = [
     excelHeaders,
-    ...finalRecords.map(r => [r.phoneNumber || 'N/A', r.name || 'N/A', r.isAdmin || 'No', r.userJid || ''])
+    ...finalRecords.map(r => [r.phoneNumber || 'N/A', r.name || 'N/A', r.pushname || 'N/A', r.isAdmin || 'No', r.userJid || ''])
   ];
 
   const worksheet = XLSX.utils.aoa_to_sheet(excelData);

@@ -404,9 +404,9 @@ app.post('/api/export', async (req, res) => {
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
 
-    const csvRows = ['#,Name,Phone Number,Role,Group Name'];
+    const csvRows = ['#,Name,Phone Number,Role,WhatsApp Profile Name,Group Name'];
     recordsToExport.forEach(r => {
-      csvRows.push(`${r.index},"${(r.name || '').replace(/"/g, '""')}","${r.phoneNumber || r.phone}","${r.role}","${(r.groupName || '').replace(/"/g, '""')}"`);
+      csvRows.push(`${r.index},"${(r.name || '').replace(/"/g, '""')}","${r.phoneNumber || r.phone}","${r.role}","${(r.pushname || 'N/A').replace(/"/g, '""')}","${(r.groupName || '').replace(/"/g, '""')}"`);
     });
 
     res.send(csvRows.join('\n'));
@@ -439,6 +439,7 @@ app.post('/api/export-excel', async (req, res) => {
       { header: 'Name', key: 'name', width: 28 },
       { header: 'Phone Number', key: 'phoneNumber', width: 22 },
       { header: 'Role', key: 'role', width: 16 },
+      { header: 'WhatsApp Profile Name', key: 'pushname', width: 26 },
       { header: 'Group Name', key: 'groupName', width: 30 }
     ];
 
@@ -493,6 +494,7 @@ app.post('/api/export-excel', async (req, res) => {
         name: rec.name,
         phoneNumber: rec.phoneNumber || rec.phone,
         role: rec.role,
+        pushname: rec.pushname || 'N/A',
         groupName: rec.groupName
       });
 
