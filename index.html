@@ -1288,7 +1288,7 @@
           const data = await res.json();
           if (data && data.authenticated === false) return;
           const groups = (data && data.groups) ? data.groups : (Array.isArray(data) ? data : []);
-          if (groups && Array.isArray(groups)) {
+          if (groups && Array.isArray(groups) && (groups.length > 0 || !fetchedGroupsList || fetchedGroupsList.length === 0)) {
             populateGroupDropdown(groups);
             if (groups.length > 0 && groupsPollingInterval) {
               clearInterval(groupsPollingInterval);

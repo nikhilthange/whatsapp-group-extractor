@@ -347,13 +347,18 @@ app.get('/api/groups', async (req, res) => {
   }
 
   try {
-    session.groups = await getGroupsWithRetry(session.client, 3, 2000);
+    if (!session.groups || session.groups.length === 0) {
+      const freshGroups = await getGroupsWithRetry(session.client, 3, 1500);
+      if (freshGroups && freshGroups.length > 0) {
+        session.groups = freshGroups;
+      }
+    }
     res.status(200).json({
       success: true,
       loading: false,
       authenticated: true,
       status: 'connected',
-      groups: session.groups
+      groups: session.groups || []
     });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });

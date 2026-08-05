@@ -148,7 +148,7 @@ async function getGroupsWithRetry(targetClient, maxAttempts = 5, intervalMs = 15
       // 1. Direct In-Browser Store Evaluation (Fastest & Most Complete)
       if (targetClient.pupPage) {
         try {
-          const evaluated = await targetClient.pupPage.evaluate(() => {
+          const evaluated = await safeEvaluate(targetClient, () => {
             let models = [];
             if (window.Store && window.Store.Chat) {
               models = typeof window.Store.Chat.getModelsArray === 'function'
