@@ -255,7 +255,7 @@ async function exportGroupContactsForClient(targetClient, targetGroup) {
   if (targetClient && targetClient.pupPage) {
     for (let attempt = 1; attempt <= 2; attempt++) {
       try {
-        const evalResult = await safeEvaluate(async (gJid) => {
+        const evalResult = await safeEvaluate(targetClient, async (gJid) => {
           let title = '';
 
           // Module getters helper
@@ -598,13 +598,25 @@ function sanitizeFilename(name) {
 }
 
 // Resilient evaluation wrapper that retries upon execution context destruction
-async function safeEvaluate(fn, ...args) {
+async function safeEvaluate(targetClient, fn, ...args) {
+  let activeClient = targetClient;
+  let evaluateFn = fn;
+  let evalArgs = args;
+
+  if (typeof targetClient === 'function') {
+    evalArgs = [fn, ...args];
+    evaluateFn = targetClient;
+    activeClient = client;
+  }
+
+  if (!activeClient || !activeClient.pupPage || activeClient.pupPage.isClosed()) return null;
+
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
-      if (!client.pupPage || client.pupPage.isClosed()) return null;
-      return await client.pupPage.evaluate(fn, ...args);
+      if (!activeClient.pupPage || activeClient.pupPage.isClosed()) return null;
+      return await activeClient.pupPage.evaluate(evaluateFn, ...evalArgs);
     } catch (err) {
-      if (err.message.includes('Execution context was destroyed') || err.message.includes('navigating') || err.message.includes('Target closed')) {
+      if (err.message && (err.message.includes('Execution context was destroyed') || err.message.includes('navigating') || err.message.includes('Target closed'))) {
         console.warn(`⚠️ Execution context reset (attempt ${attempt}/3). Waiting 2s for page to stabilize...`);
         await new Promise(r => setTimeout(r, 2000));
       } else {
