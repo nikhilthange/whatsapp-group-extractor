@@ -248,229 +248,203 @@ async function exportGroupContactsForClient(targetClient, targetGroup) {
     throw new Error('Invalid Group JID provided');
   }
 
-  let participantsRaw = [];
   let groupTitle = (targetGroup && targetGroup.name) || 'WhatsApp Group';
+  let participantsRaw = [];
 
-  // 1. Direct standard API check
-  try {
-    const chat = await targetClient.getChatById(targetJid).catch(() => null);
-    if (chat) {
-      if (chat.name) groupTitle = chat.name;
-      if (chat.participants && chat.participants.length > 0) {
-        participantsRaw = chat.participants;
-      }
-    }
-  } catch(e) {}
-
-  // 2. Fast In-Browser Evaluation
-  if ((!participantsRaw || participantsRaw.length === 0) && targetClient.pupPage) {
+  // 1. Primary Pass: Deep In-Browser Store Evaluation with WAWebGroupQueryJob & LID Resolution
+  if (targetClient && targetClient.pupPage) {
     for (let attempt = 1; attempt <= 2; attempt++) {
       try {
-        const evalResult = await targetClient.pupPage.evaluate(async (gJid) => {
-          let title = 'WhatsApp Group';
-          let parts = [];
+        const evalResult = await safeEvaluate(async (gJid) => {
+          let title = '';
 
+          // Module getters helper
+          const getModule = (name) => {
+            try { return window.require ? window.require(name) : null; } catch(e) { return null; }
+          };
+
+          const widFactory = getModule('WAWebWidFactory');
           let wid = gJid;
-          try {
-            if (typeof gJid === 'string' && window.Store && window.Store.WidFactory && typeof window.Store.WidFactory.createWid === 'function') {
-              wid = window.Store.WidFactory.createWid(gJid);
-            }
-          } catch(e) {}
+          if (widFactory && typeof widFactory.createWid === 'function') {
+            try { wid = widFactory.createWid(gJid); } catch(e) {}
+          }
+          const serializedJid = typeof wid === 'string' ? wid : (wid._serialized || gJid);
 
-          // Method A: Check in-memory GroupMetadata or Chat first (0ms)
-          if (window.Store && window.Store.GroupMetadata) {
+          // Force fetch latest group metadata from WhatsApp Web backend server
+          const groupQueryJob = getModule('WAWebGroupQueryJob');
+          if (groupQueryJob && typeof groupQueryJob.queryAndUpdateGroupMetadataById === 'function') {
             try {
-              let meta = typeof window.Store.GroupMetadata.get === 'function' ? (window.Store.GroupMetadata.get(wid) || window.Store.GroupMetadata.get(gJid)) : null;
-              if (!meta && (window.Store.GroupMetadata.models || window.Store.GroupMetadata._models)) {
-                const metaModels = Array.from(window.Store.GroupMetadata.models || window.Store.GroupMetadata._models || []);
-                meta = metaModels.find(m => {
+              await Promise.race([
+                groupQueryJob.queryAndUpdateGroupMetadataById({ id: serializedJid }),
+                new Promise(r => setTimeout(r, 4000))
+              ]).catch(() => {});
+            } catch(e) {}
+          }
+
+          // Trigger GroupMetadata collection update
+          const collections = getModule('WAWebCollections') || window.Store;
+          if (collections && collections.GroupMetadata && typeof collections.GroupMetadata.update === 'function') {
+            try {
+              await collections.GroupMetadata.update(wid).catch(() => {});
+            } catch(e) {}
+          }
+
+          // Search GroupMetadata Model
+          let groupMeta = null;
+          if (collections && collections.GroupMetadata) {
+            try {
+              groupMeta = typeof collections.GroupMetadata.get === 'function'
+                ? (collections.GroupMetadata.get(wid) || collections.GroupMetadata.get(serializedJid))
+                : null;
+              if (!groupMeta && (collections.GroupMetadata.models || collections.GroupMetadata._models)) {
+                const models = Array.from(collections.GroupMetadata.models || collections.GroupMetadata._models);
+                groupMeta = models.find(m => {
                   const mid = m.id ? (typeof m.id === 'string' ? m.id : (m.id._serialized || m.id.user || '')) : '';
-                  return mid === gJid || mid.includes(gJid) || gJid.includes(mid);
+                  return mid === serializedJid || mid.includes(serializedJid) || serializedJid.includes(mid);
                 });
-              }
-              if (meta && meta.participants && meta.participants.length > 0) {
-                const pColl = meta.participants;
-                parts = Array.isArray(pColl) ? pColl : (typeof pColl.getModelsArray === 'function' ? pColl.getModelsArray() : Array.from(pColl.models || pColl._models || pColl));
-                title = meta.subject || meta.name || title;
               }
             } catch(e) {}
           }
 
-          if ((!parts || parts.length === 0) && window.Store && window.Store.Chat) {
+          // Search Chat Model
+          let chatModel = null;
+          if (collections && collections.Chat) {
             try {
-              let chatModel = typeof window.Store.Chat.get === 'function' ? (window.Store.Chat.get(wid) || window.Store.Chat.get(gJid)) : null;
-              if (!chatModel && (window.Store.Chat.models || window.Store.Chat._models)) {
-                const models = Array.from(window.Store.Chat.models || window.Store.Chat._models || []);
+              chatModel = typeof collections.Chat.get === 'function'
+                ? (collections.Chat.get(wid) || collections.Chat.get(serializedJid))
+                : null;
+              if (!chatModel && (collections.Chat.models || collections.Chat._models)) {
+                const models = Array.from(collections.Chat.models || collections.Chat._models);
                 chatModel = models.find(m => {
                   const mid = m.id ? (typeof m.id === 'string' ? m.id : (m.id._serialized || m.id.user || '')) : '';
-                  return mid === gJid || mid.includes(gJid) || gJid.includes(mid);
+                  return mid === serializedJid || mid.includes(serializedJid) || serializedJid.includes(mid);
                 });
               }
-              if (chatModel) {
-                title = chatModel.formattedTitle || chatModel.name || chatModel.title || title;
-                const pColl = (chatModel.groupMetadata && chatModel.groupMetadata.participants) || chatModel.participants;
-                if (pColl && pColl.length > 0) {
-                  parts = Array.isArray(pColl) ? pColl : (typeof pColl.getModelsArray === 'function' ? pColl.getModelsArray() : Array.from(pColl.models || pColl._models || pColl));
+            } catch(e) {}
+          }
+
+          if (chatModel) {
+            title = chatModel.formattedTitle || chatModel.name || chatModel.title || title;
+            if (!groupMeta && chatModel.groupMetadata) {
+              groupMeta = chatModel.groupMetadata;
+            }
+          }
+
+          if (groupMeta) {
+            title = groupMeta.subject || groupMeta.name || title;
+          }
+
+          // Retrieve Participants Collection / Array
+          let rawPartsColl = null;
+          if (groupMeta) {
+            if (groupMeta.participants) {
+              rawPartsColl = groupMeta.participants;
+            } else if (typeof groupMeta.serialize === 'function') {
+              const serialized = groupMeta.serialize();
+              if (serialized && serialized.participants) rawPartsColl = serialized.participants;
+            }
+          }
+
+          if ((!rawPartsColl || rawPartsColl.length === 0) && chatModel) {
+            const pColl = (chatModel.groupMetadata && chatModel.groupMetadata.participants) || chatModel.participants;
+            if (pColl) rawPartsColl = pColl;
+          }
+
+          let partsArray = [];
+          if (rawPartsColl) {
+            if (Array.isArray(rawPartsColl)) {
+              partsArray = rawPartsColl;
+            } else if (typeof rawPartsColl.getModelsArray === 'function') {
+              partsArray = rawPartsColl.getModelsArray();
+            } else if (rawPartsColl.models || rawPartsColl._models) {
+              partsArray = Array.from(rawPartsColl.models || rawPartsColl._models);
+            } else if (typeof rawPartsColl[Symbol.iterator] === 'function') {
+              partsArray = Array.from(rawPartsColl);
+            }
+          }
+
+          // Helper for LID resolution
+          const lidUtils = getModule('WAWebLidMigrationUtils');
+          const toPn = (lidUtils && typeof lidUtils.toPn === 'function') ? lidUtils.toPn : (id => id);
+
+          const contactColl = (collections && collections.Contact) ? collections.Contact : null;
+
+          const mappedParticipants = partsArray.map(p => {
+            if (!p) return null;
+
+            let pId = p.id;
+            let pPn = p.pn || p.pnJid;
+
+            let convertedId = toPn(pId);
+            if (convertedId) pId = convertedId;
+
+            const rawId = pId ? (typeof pId === 'string' ? pId : (pId._serialized || pId.user || '')) : '';
+            const rawPn = pPn ? (typeof pPn === 'string' ? pPn : (pPn._serialized || pPn.user || '')) : '';
+
+            let extractedPhone = '';
+            if (rawPn && (rawPn.endsWith('@c.us') || rawPn.endsWith('@s.whatsapp.net'))) {
+              extractedPhone = rawPn.split('@')[0].replace(/[^0-9]/g, '');
+            }
+            if (!extractedPhone && rawId && (rawId.endsWith('@c.us') || rawId.endsWith('@s.whatsapp.net'))) {
+              extractedPhone = rawId.split('@')[0].replace(/[^0-9]/g, '');
+            }
+            if (!extractedPhone && pId && pId.user && /^\d{7,15}$/.test(pId.user)) {
+              extractedPhone = pId.user;
+            }
+
+            let cModel = null;
+            if (contactColl) {
+              try {
+                if (typeof contactColl.get === 'function') {
+                  cModel = contactColl.get(rawId) || (rawPn ? contactColl.get(rawPn) : null) || (extractedPhone ? contactColl.get(extractedPhone + '@c.us') : null);
                 }
-              }
-            } catch(e) {}
-          }
-
-          // Method B: Server fetch via GroupMetadata.find() if memory was empty
-          if ((!parts || parts.length === 0) && window.Store && window.Store.GroupMetadata && typeof window.Store.GroupMetadata.find === 'function') {
-            try {
-              let meta = await Promise.race([
-                window.Store.GroupMetadata.find(wid),
-                new Promise(r => setTimeout(() => r(null), 4000))
-              ]).catch(() => null);
-
-              if (meta && meta.participants) {
-                const pColl = meta.participants;
-                parts = Array.isArray(pColl) ? pColl : (typeof pColl.getModelsArray === 'function' ? pColl.getModelsArray() : Array.from(pColl.models || pColl._models || pColl));
-                title = meta.subject || meta.name || title;
-              }
-            } catch(e) {}
-          }
-
-          // Method C: Search all Chat models by title matching
-          if (!parts || parts.length === 0) {
-            try {
-              const targetStr = String(gJid || '').toLowerCase().trim();
-              const allModels = Array.from((window.Store && window.Store.Chat && (window.Store.Chat.models || window.Store.Chat._models)) || []);
-              for (const m of allModels) {
-                const mTitle = String(m.formattedTitle || m.name || m.title || '').toLowerCase().trim();
-                if (mTitle && (mTitle === targetStr || mTitle.includes(targetStr) || targetStr.includes(mTitle))) {
-                  title = m.formattedTitle || m.name || title;
-                  const pColl = (m.groupMetadata && m.groupMetadata.participants) || m.participants;
-                  if (pColl) {
-                    parts = Array.from(pColl);
-                    break;
-                  }
+                if (!cModel && (contactColl.models || contactColl._models)) {
+                  const cArr = Array.from(contactColl.models || contactColl._models);
+                  cModel = cArr.find(c => {
+                    const cid = c.id ? (typeof c.id === 'string' ? c.id : (c.id._serialized || '')) : '';
+                    return cid === rawId || cid === rawPn || (extractedPhone && cid.includes(extractedPhone));
+                  });
                 }
-              }
-            } catch(e) {}
-          }
+              } catch(e) {}
+            }
 
-          // Method D: Extract from Message History (msg.author / msg.from)
-          if (!parts || parts.length === 0) {
-            try {
-              const participantSet = new Map();
-              const cleanNum = String(gJid).replace(/[^0-9]/g, '');
-              const allMsgs = Array.from((window.Store && window.Store.Msg && (window.Store.Msg.models || window.Store.Msg._models)) || []);
-              for (const m of allMsgs) {
-                const msgChatId = m.id ? (typeof m.id === 'string' ? m.id : (m.id.remote || m.id._serialized || '')) : (m.from || '');
-                if (msgChatId.includes(gJid) || gJid.includes(msgChatId) || (cleanNum && msgChatId.includes(cleanNum))) {
-                  const senderJid = m.author || m.from || (m.id && m.id.participant ? (typeof m.id.participant === 'string' ? m.id.participant : m.id.participant._serialized) : '');
-                  if (senderJid && (senderJid.endsWith('@c.us') || senderJid.endsWith('@s.whatsapp.net') || senderJid.endsWith('@lid')) && !participantSet.has(senderJid)) {
-                    participantSet.set(senderJid, {
-                      id: senderJid,
-                      user: senderJid.split('@')[0],
-                      isAdmin: false,
-                      name: m.sender ? (m.sender.pushname || m.sender.name) : senderJid.split('@')[0]
-                    });
-                  }
-                }
-              }
-              if (participantSet.size > 0) {
-                parts = Array.from(participantSet.values());
-              }
-            } catch(e) {}
-          }
+            if (!extractedPhone && cModel) {
+              if (cModel.phoneNumber) extractedPhone = String(cModel.phoneNumber).replace(/[^0-9]/g, '');
+              if (!extractedPhone && cModel.number) extractedPhone = String(cModel.number).replace(/[^0-9]/g, '');
+              if (!extractedPhone && cModel.userid) extractedPhone = String(cModel.userid).replace(/[^0-9]/g, '');
+            }
+
+            let pushname = p.pushname || p.notifyName || (cModel ? (cModel.pushname || cModel.notifyName) : '') || '';
+            let savedName = p.name || p.formattedName || (cModel ? (cModel.name || cModel.formattedName || cModel.displayName || cModel.shortName || cModel.verifiedName) : '') || '';
+
+            const cleanSavedDigits = String(savedName || '').replace(/[^0-9]/g, '');
+            if (String(savedName || '').trim().startsWith('+') || (cleanSavedDigits.length >= 10 && cleanSavedDigits.length <= 15 && !/[a-zA-Z]/.test(savedName))) {
+              if (!extractedPhone) extractedPhone = cleanSavedDigits;
+              savedName = '';
+            }
+
+            const cleanPushDigits = String(pushname || '').replace(/[^0-9]/g, '');
+            if (String(pushname || '').trim().startsWith('+') || (cleanPushDigits.length >= 10 && cleanPushDigits.length <= 15 && !/[a-zA-Z]/.test(pushname))) {
+              if (!extractedPhone) extractedPhone = cleanPushDigits;
+              pushname = '';
+            }
+
+            let finalName = savedName || (pushname ? ('~' + pushname.replace(/^~/, '')) : '');
+
+            return {
+              id: rawId || (extractedPhone ? extractedPhone + '@c.us' : ''),
+              user: extractedPhone || (rawId.endsWith('@lid') ? '' : rawId.split('@')[0]),
+              phoneNum: extractedPhone,
+              isAdmin: Boolean(p.isAdmin || p.isSuperAdmin || p.role === 'admin' || p.role === 'superadmin'),
+              name: finalName,
+              pushname: pushname,
+              savedName: savedName
+            };
+          }).filter(Boolean);
 
           return {
             title: title,
-            participants: (parts || []).map(p => {
-              const rawId = p.id ? (typeof p.id === 'string' ? p.id : (p.id._serialized || p.id.$1 || p.id.user || '')) : '';
-              let pnJid = p.pn ? (typeof p.pn === 'string' ? p.pn : (p.pn._serialized || p.pn.user || '')) : '';
-              if (!pnJid && p.pnJid) {
-                pnJid = typeof p.pnJid === 'string' ? p.pnJid : (p.pnJid._serialized || p.pnJid.user || '');
-              }
-
-              let contactModel = null;
-              try {
-                if (window.Store && window.Store.Contact) {
-                  if (typeof window.Store.Contact.get === 'function') {
-                    contactModel = window.Store.Contact.get(rawId) || (pnJid ? window.Store.Contact.get(pnJid) : null);
-                  }
-                  if (!contactModel && window.Store.Contact.models) {
-                    const models = Array.from(window.Store.Contact.models || window.Store.Contact._models || []);
-                    contactModel = models.find(c => {
-                      const cid = c.id ? (typeof c.id === 'string' ? c.id : (c.id._serialized || '')) : '';
-                      const clid = c.lid ? (typeof c.lid === 'string' ? c.lid : (c.lid._serialized || '')) : '';
-                      return (cid && (cid === rawId || cid === pnJid)) || (clid && (clid === rawId || clid === pnJid));
-                    });
-                  }
-                }
-              } catch(e) {}
-              if (!contactModel && p.contact) contactModel = p.contact;
-
-              let extractedPhone = '';
-
-              if (pnJid) {
-                const u = pnJid.split('@')[0].replace(/[^0-9]/g, '');
-                if (u && u.length >= 7 && u.length <= 15) extractedPhone = u;
-              }
-
-              if (!extractedPhone && contactModel) {
-                if (contactModel.id) {
-                  const cid = typeof contactModel.id === 'string' ? contactModel.id : (contactModel.id._serialized || '');
-                  const cserver = contactModel.id.server || '';
-                  if (cserver === 'c.us' || cserver === 's.whatsapp.net' || cid.endsWith('@c.us') || cid.endsWith('@s.whatsapp.net')) {
-                    const u = (typeof contactModel.id === 'string' ? contactModel.id.split('@')[0] : (contactModel.id.user || '')).replace(/[^0-9]/g, '');
-                    if (u && u.length >= 7 && u.length <= 15) extractedPhone = u;
-                  }
-                }
-                if (!extractedPhone && contactModel.phoneNumber) {
-                  const u = String(contactModel.phoneNumber).replace(/[^0-9]/g, '');
-                  if (u && u.length >= 7 && u.length <= 15) extractedPhone = u;
-                }
-                if (!extractedPhone && contactModel.number) {
-                  const u = String(contactModel.number).replace(/[^0-9]/g, '');
-                  if (u && u.length >= 7 && u.length <= 15) extractedPhone = u;
-                }
-                if (!extractedPhone && contactModel.userid) {
-                  const u = String(contactModel.userid).replace(/[^0-9]/g, '');
-                  if (u && u.length >= 7 && u.length <= 15) extractedPhone = u;
-                }
-              }
-
-              if (!extractedPhone && rawId && (rawId.endsWith('@c.us') || rawId.endsWith('@s.whatsapp.net') || (!rawId.endsWith('@lid') && !rawId.includes('@lid')))) {
-                const u = rawId.split('@')[0].replace(/[^0-9]/g, '');
-                if (u && u.length >= 7 && u.length <= 15) extractedPhone = u;
-              }
-
-              let pushname = p.pushname || p.notifyName || '';
-              let savedName = p.name || p.formattedName || p.shortName || '';
-
-              if (contactModel) {
-                pushname = contactModel.pushname || contactModel.notifyName || pushname;
-                savedName = contactModel.name || contactModel.formattedName || contactModel.displayName || contactModel.shortName || contactModel.verifiedName || savedName;
-              }
-
-              const cleanSavedDigits = String(savedName || '').replace(/[^0-9]/g, '');
-              if (String(savedName || '').trim().startsWith('+') || (cleanSavedDigits.length >= 10 && cleanSavedDigits.length <= 15 && !/[a-zA-Z]/.test(savedName))) {
-                if (!extractedPhone) extractedPhone = cleanSavedDigits;
-                savedName = '';
-              }
-
-              const cleanPushDigits = String(pushname || '').replace(/[^0-9]/g, '');
-              if (String(pushname || '').trim().startsWith('+') || (cleanPushDigits.length >= 10 && cleanPushDigits.length <= 15 && !/[a-zA-Z]/.test(pushname))) {
-                if (!extractedPhone) extractedPhone = cleanPushDigits;
-                pushname = '';
-              }
-
-              let finalName = savedName || (pushname ? ('~' + pushname.replace(/^~/, '')) : '');
-
-              return {
-                id: rawId,
-                user: extractedPhone || (rawId.endsWith('@lid') ? '' : rawId.split('@')[0]),
-                phoneNum: extractedPhone,
-                isAdmin: Boolean(p.isAdmin || p.isSuperAdmin || p.role === 'admin' || p.role === 'superadmin'),
-                name: finalName,
-                pushname: pushname,
-                savedName: savedName
-              };
-            })
+            participants: mappedParticipants
           };
         }, targetJid).catch(() => null);
 
@@ -482,45 +456,36 @@ async function exportGroupContactsForClient(targetClient, targetGroup) {
           }
         }
       } catch(e) {
-        console.warn(`[Group Contacts Sync] Page eval error on attempt ${attempt}:`, e.message);
+        console.warn(`[Group Contacts Sync] Attempt ${attempt} evaluation notice:`, e.message);
       }
     }
   }
 
-  // 3. Fallback: Query all active contacts in Store if group participants were unindexed
-  if ((!participantsRaw || participantsRaw.length === 0) && targetClient.pupPage) {
+  // 2. Secondary Pass: Standard whatsapp-web.js API Fallback
+  if ((!participantsRaw || participantsRaw.length === 0) && targetClient && targetClient.getChatById) {
     try {
-      const contactList = await targetClient.pupPage.evaluate(() => {
-        const contacts = Array.from((window.Store && window.Store.Contact && (window.Store.Contact.models || window.Store.Contact._models)) || []);
-        return contacts
-          .filter(c => c.id && ((typeof c.id === 'string' && c.id.endsWith('@c.us')) || (c.id.server === 'c.us')))
-          .map(c => ({
-            id: typeof c.id === 'string' ? c.id : (c.id._serialized || ''),
-            user: c.id ? (typeof c.id === 'string' ? c.id.split('@')[0] : (c.id.user || '')) : '',
-            isAdmin: false,
-            name: c.formattedName || c.name || c.pushname || '',
-            pushname: c.pushname || c.notifyName || ''
-          }));
-      }).catch(() => []);
-
-      if (contactList && contactList.length > 0) {
-        participantsRaw = contactList;
+      const chat = await targetClient.getChatById(targetJid).catch(() => null);
+      if (chat) {
+        if (chat.name) groupTitle = chat.name;
+        if (chat.participants && chat.participants.length > 0) {
+          participantsRaw = chat.participants.map(p => {
+            const pIdObj = p.id || {};
+            const sId = typeof pIdObj === 'string' ? pIdObj : (pIdObj._serialized || (pIdObj.user ? pIdObj.user + '@c.us' : ''));
+            const userNum = pIdObj.user || (typeof sId === 'string' ? sId.split('@')[0] : '');
+            return {
+              id: sId,
+              user: userNum,
+              phoneNum: /^\d{7,15}$/.test(userNum) ? userNum : '',
+              isAdmin: Boolean(p.isAdmin || p.isSuperAdmin),
+              name: p.name || p.pushname || ''
+            };
+          });
+        }
       }
     } catch(e) {}
   }
 
-  // 4. Guarantee non-empty records so extraction NEVER throws an error
-  if (!participantsRaw || participantsRaw.length === 0) {
-    const defaultUserPhone = (targetClient && targetClient.info && targetClient.info.wid) ? targetClient.info.wid.user : '';
-    participantsRaw = [
-      {
-        id: defaultUserPhone ? defaultUserPhone + '@c.us' : 'admin@c.us',
-        user: defaultUserPhone || 'WhatsApp Admin',
-        isAdmin: true,
-        name: defaultUserPhone ? '+' + defaultUserPhone + ' (Group Admin)' : 'Group Admin'
-      }
-    ];
-  }
+  if (!participantsRaw) participantsRaw = [];
 
   // Fast Node.js Level Contact Enrichment for missing pushnames (Max 30 contacts to stay super fast)
   if (participantsRaw && participantsRaw.length > 0 && targetClient && targetClient.getContactById) {
@@ -652,405 +617,19 @@ async function safeEvaluate(fn, ...args) {
 
 async function exportGroupContacts(targetGroup) {
   console.log(`\n--------------------------------------------------`);
-  console.log(`⏳ Extracting contacts for group: "${targetGroup.name}"...`);
+  console.log(`⏳ Extracting contacts for group: "${targetGroup.name || 'WhatsApp Group'}"...`);
 
   const groupJid = targetGroup.groupJid || (targetGroup.id && targetGroup.id._serialized ? targetGroup.id._serialized : targetGroup.userJid);
   console.log(`🔗 Target Group JID: ${groupJid}`);
 
-  const myUserNum = (client.info && client.info.wid) ? (client.info.wid.user || client.info.wid._serialized.split('@')[0]) : '';
+  const myUserNum = (client && client.info && client.info.wid) ? (client.info.wid.user || client.info.wid._serialized.split('@')[0]) : '';
   console.log(`👤 Logged-in user account: ${myUserNum || 'N/A'}`);
 
-  let extractedContacts = [];
+  const { groupName, finalRecords } = await exportGroupContactsForClient(client, targetGroup);
 
-  // A. Type into Search Box via Puppeteer Keyboard to open chat
-  if (client.pupPage && targetGroup.name) {
-    try {
-      const cleanName = targetGroup.name.replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, '').trim() || targetGroup.name;
-      const firstWord = cleanName.split(/\s+/)[0] || cleanName;
+  console.log(`📋 Found ${finalRecords ? finalRecords.length : 0} group contact records.`);
 
-      const searchSelector = 'div[contenteditable="true"][data-tab="3"], div[contenteditable="true"], div[role="textbox"]';
-      const searchBox = await client.pupPage.$(searchSelector);
-      if (searchBox) {
-        await searchBox.click();
-        await client.pupPage.keyboard.down('Control');
-        await client.pupPage.keyboard.press('A');
-        await client.pupPage.keyboard.up('Control');
-        await client.pupPage.keyboard.press('Backspace');
-        await new Promise(r => setTimeout(r, 300));
-        await client.pupPage.keyboard.type(firstWord, { delay: 50 });
-        await new Promise(r => setTimeout(r, 1500));
-      }
-    } catch(e) {}
-  }
-
-  // B. DOM Drawer Extraction & Validation
-  if (client.pupPage && groupJid) {
-    try {
-      const domContacts = await safeEvaluate(async (gJid, gName, myNum) => {
-        const triggerClick = (el) => {
-          if (!el) return;
-          ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(evtName => {
-            try {
-              el.dispatchEvent(new MouseEvent(evtName, {
-                bubbles: true,
-                cancelable: true,
-                view: window
-              }));
-            } catch(e) {}
-          });
-        };
-
-        const cleanName = gName.replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, '').trim() || gName;
-        const firstWord = cleanName.split(/\s+/)[0] || cleanName;
-
-        // Step 1: Click Matching Chat Card
-        const chatCards = Array.from(document.querySelectorAll('div[role="listitem"], div[role="row"]'));
-        let chatCard = chatCards.find(c => {
-          const t = (c.innerText || '').toLowerCase();
-          return t.includes(gName.toLowerCase()) || t.includes(cleanName.toLowerCase()) || t.includes(firstWord.toLowerCase());
-        });
-
-        if (!chatCard) {
-          const allSpans = Array.from(document.querySelectorAll('#pane-side span[title], #pane-side span[dir="auto"], span[title]'));
-          const matchingSpan = allSpans.find(s => {
-            const t = (s.getAttribute('title') || s.innerText || '').trim();
-            return t === gName || t === cleanName || t.includes(cleanName) || (firstWord.length > 2 && t.includes(firstWord));
-          });
-          if (matchingSpan) {
-            chatCard = matchingSpan.closest('div[role="listitem"]') || 
-                       matchingSpan.closest('div[role="row"]') || 
-                       matchingSpan.closest('div[tabindex="-1"]') || 
-                       matchingSpan;
-          }
-        }
-
-        if (chatCard) {
-          triggerClick(chatCard);
-          await new Promise(r => setTimeout(r, 2000));
-        }
-
-        const contactMap = new Map();
-
-        // Step 1: Internal GroupMetadata Update & LID Resolution
-        if (window.require) {
-          try {
-            let chatColl = null;
-            try { chatColl = window.require('WAWebChatCollection').Chat; } catch(e) {}
-            if (!chatColl) {
-              try { chatColl = window.require('WAWebCollections').Chat; } catch(e) {}
-            }
-            if (!chatColl && window.Store && window.Store.Chat) {
-              chatColl = window.Store.Chat;
-            }
-
-            let contactColl = null;
-            try { contactColl = window.require('WAWebContactCollection').Contact; } catch(e) {}
-            if (!contactColl) {
-              try { contactColl = window.require('WAWebContactModel').Contact; } catch(e) {}
-            }
-            if (!contactColl && window.Store && window.Store.Contact) {
-              contactColl = window.Store.Contact;
-            }
-
-            const targetChat = chatColl ? (chatColl.get(gJid) || chatColl.get(gJid.split('@')[0])) : null;
-
-            if (targetChat) {
-              let toPn = (id) => id;
-              try {
-                const lidUtils = window.require('WAWebLidMigrationUtils');
-                if (lidUtils && lidUtils.toPn) toPn = lidUtils.toPn;
-              } catch(e) {}
-
-              const meta = targetChat.groupMetadata || targetChat.groupMetadataModel;
-              if (meta) {
-                const serialized = meta.serialize ? meta.serialize() : meta;
-                const pList = serialized.participants || [];
-                pList.forEach(p => {
-                  const pId = toPn(p.id) ?? p.id;
-                  const sId = typeof pId === 'string' ? pId : (pId._serialized || (pId.user ? pId.user + '@c.us' : ''));
-                  const uPart = (pId && pId.user) ? pId.user : (typeof sId === 'string' ? sId.split('@')[0] : '');
-
-                  if (sId && uPart && (myNum ? uPart !== myNum : true)) {
-                    const phone = /^\d{10,15}$/.test(uPart) ? '+' + uPart : 'N/A';
-                    const key = (phone !== 'N/A') ? phone : sId;
-
-                    let name = 'N/A';
-                    if (p.name || p.pushname) {
-                      name = p.name || p.pushname;
-                    }
-
-                    if ((!name || name === 'N/A') && contactColl && typeof contactColl.get === 'function') {
-                      const cObj = contactColl.get(sId) || contactColl.get(uPart + '@c.us') || contactColl.get(uPart + '@s.whatsapp.net');
-                      if (cObj) {
-                        name = cObj.name || cObj.pushname || cObj.verifiedName || (cObj.formattedName && !cObj.formattedName.includes('+') ? cObj.formattedName : 'N/A');
-                      }
-                    }
-
-                    if ((!name || name === 'N/A') && p.contact) {
-                      name = p.contact.name || p.contact.pushname || p.contact.verifiedName || 'N/A';
-                    }
-
-                    if (typeof name === 'string') {
-                      name = name.trim().replace(/^~\s*/, '');
-                      if (!name || name.includes('+') || /^\d+$/.test(name)) {
-                        name = 'N/A';
-                      }
-                    } else {
-                      name = 'N/A';
-                    }
-
-                    if (!contactMap.has(key)) {
-                      contactMap.set(key, {
-                        phoneNumber: phone,
-                        name: name,
-                        isAdmin: Boolean(p.isAdmin || p.isSuperAdmin) ? 'Yes' : 'No',
-                        userJid: sId.endsWith('@c.us') || sId.endsWith('@s.whatsapp.net') ? sId : uPart + '@c.us'
-                      });
-                    } else {
-                      const existing = contactMap.get(key);
-                      if ((!existing.name || existing.name === 'N/A') && name !== 'N/A') {
-                        existing.name = name;
-                      }
-                    }
-                  }
-                });
-              }
-            }
-          } catch(e) {}
-        }
-
-        // Step 3: Open Right Drawer & Strict Container Isolation DOM Extraction
-        let rightPanel = document.querySelector('div[role="dialog"]') ||
-                         document.querySelector('div[role="region"]') || 
-                         document.querySelector('aside');
-
-        if (!rightPanel) {
-          const mainHeader = document.querySelector('#main header') || document.querySelector('header');
-          if (mainHeader) {
-            const titleBtn = mainHeader.querySelector('span[title]') || mainHeader.querySelector('div[role="button"]') || mainHeader;
-            if (titleBtn) triggerClick(titleBtn);
-            await new Promise(r => setTimeout(r, 2500));
-          }
-          rightPanel = document.querySelector('div[role="dialog"]') ||
-                       document.querySelector('div[role="region"]') || 
-                       document.querySelector('aside');
-        }
-
-        if (rightPanel) {
-          const buttons = Array.from(rightPanel.querySelectorAll('div[role="button"], span, div'));
-          const viewAllBtn = buttons.find(b => {
-            const txt = (b.innerText || '').toLowerCase();
-            return (txt.includes('view all') || txt.includes('more members') || txt.includes('members')) && 
-                   !b.closest('#pane-side') && 
-                   !b.closest('#main');
-          });
-
-          if (viewAllBtn) {
-            try {
-              triggerClick(viewAllBtn);
-              await new Promise(r => setTimeout(r, 1500));
-              const dialog = document.querySelector('div[role="dialog"]');
-              if (dialog) rightPanel = dialog;
-            } catch(e) {}
-          }
-
-          const scrollContainer = rightPanel.querySelector('div[tabindex="-1"]') || 
-                                  rightPanel;
-
-          let lastScrollTop = -1;
-          let sameCount = 0;
-
-          const phoneRegex = /\+?\d[\d\s\-]{8,18}\d/;
-          const ignoredLabels = ['Group Admin', 'Admin', 'You', 'Select All', 'Community', 'Media, links and docs', 'Community Admin', 'All', 'Unread', 'Favourites', 'Favorites', 'Groups', 'Groups in common', 'Mute notifications'];
-
-          while (sameCount < 5) {
-            let listItems = Array.from(rightPanel.querySelectorAll('div[role="listitem"], div[role="row"]'));
-            if (listItems.length === 0) {
-              listItems = Array.from(rightPanel.querySelectorAll('div[tabindex="-1"]'));
-            }
-            
-            listItems.forEach((item) => {
-              if (item.closest('#pane-side') || item.closest('#main')) return;
-              const text = (item.innerText || '').trim();
-              if (!text) return;
-              if (text.includes('Media, links and docs') || text.includes('Groups in common') || text.includes('Mute notifications')) return;
-
-              const match = text.match(phoneRegex);
-              if (match) {
-                const digits = match[0].replace(/[^0-9]/g, '');
-                if (digits.length >= 10 && digits.length <= 15 && (myNum ? digits !== myNum : true)) {
-                  const phone = '+' + digits;
-                  let name = 'N/A';
-                  const nameSpans = Array.from(item.querySelectorAll('span[title], span[dir="auto"]'));
-                  for (const span of nameSpans) {
-                    let val = (span.getAttribute('title') || span.innerText || '').trim();
-                    if (val) {
-                      val = val.replace(/^~\s*/, '').trim();
-                      if (
-                        val && 
-                        !val.includes('+') && 
-                        !/^\d+$/.test(val) && 
-                        !ignoredLabels.includes(val)
-                      ) {
-                        name = val;
-                        break;
-                      }
-                    }
-                  }
-                  const isAdmin = text.includes('Group Admin') || text.includes('Admin') ? 'Yes' : 'No';
-
-                  if (!contactMap.has(phone)) {
-                    contactMap.set(phone, {
-                      phoneNumber: phone,
-                      name: name,
-                      isAdmin: isAdmin,
-                      userJid: digits + '@c.us'
-                    });
-                  } else {
-                    const existing = contactMap.get(phone);
-                    if ((!existing.name || existing.name === 'N/A') && name !== 'N/A') {
-                      existing.name = name;
-                    }
-                    if (isAdmin === 'Yes') {
-                      existing.isAdmin = 'Yes';
-                    }
-                  }
-                }
-              }
-            });
-
-            scrollContainer.scrollTop += 400;
-            try {
-              scrollContainer.dispatchEvent(new WheelEvent('wheel', { deltaY: 400, bubbles: true }));
-            } catch(e) {}
-
-            await new Promise((r) => setTimeout(r, 600));
-
-            if (scrollContainer.scrollTop === lastScrollTop) {
-              sameCount++;
-            } else {
-              sameCount = 0;
-              lastScrollTop = scrollContainer.scrollTop;
-            }
-          }
-        }
-
-        return Array.from(contactMap.values());
-      }, groupJid, targetGroup.name, myUserNum);
-
-      if (domContacts && domContacts.length > 0) {
-        extractedContacts = extractedContacts.concat(domContacts);
-      }
-    } catch (err) {
-      console.warn('⚠️ Evaluate notice:', err.message);
-    }
-  }
-
-  console.log(`📋 Found ${extractedContacts ? extractedContacts.length : 0} raw contact records.`);
-
-  // 4. Secondary Pass & CSV Export
-  if (extractedContacts && extractedContacts.length > 0) {
-    console.log(`📋 Resolving contact details for ${extractedContacts.length} group members...`);
-
-    // A. Fast in-browser evaluation batch pass to fetch names from WhatsApp internal store
-    if (client.pupPage) {
-      try {
-        const resolvedNamesMap = await safeEvaluate(async (contacts) => {
-          let contactColl = null;
-          try { contactColl = window.require('WAWebContactCollection').Contact; } catch(e) {}
-          if (!contactColl && window.Store && window.Store.Contact) {
-            contactColl = window.Store.Contact;
-          }
-
-          const resultMap = {};
-          if (!contactColl) return resultMap;
-
-          for (const c of contacts) {
-            if (c.userJid) {
-              const cObj = (typeof contactColl.get === 'function') ? (contactColl.get(c.userJid) || contactColl.get(c.userJid.replace('@c.us', '@s.whatsapp.net')) || contactColl.get(c.userJid.split('@')[0] + '@c.us')) : null;
-              if (cObj) {
-                let n = cObj.name || cObj.pushname || cObj.verifiedName || cObj.shortName;
-                if (!n && cObj.formattedName && !cObj.formattedName.includes('+') && !/^\d+$/.test(cObj.formattedName)) {
-                  n = cObj.formattedName;
-                }
-                if (n && typeof n === 'string' && n.trim()) {
-                  n = n.trim().replace(/^~\s*/, '');
-                  if (n && n !== 'N/A' && !n.includes('+') && !/^\d+$/.test(n)) {
-                    resultMap[c.userJid] = n;
-                  }
-                }
-              }
-            }
-          }
-          return resultMap;
-        }, extractedContacts);
-
-        if (resolvedNamesMap) {
-          for (const c of extractedContacts) {
-            if ((!c.name || c.name === 'N/A') && c.userJid && resolvedNamesMap[c.userJid]) {
-              c.name = resolvedNamesMap[c.userJid];
-            }
-          }
-        }
-      } catch (e) {}
-    }
-
-    // B. Secondary fallback pass via client.getContactById for any contact still missing a name or phone
-    for (const c of extractedContacts) {
-      if ((!c.phoneNumber || c.phoneNumber === 'N/A') && c.userJid) {
-        const userPart = c.userJid.split('@')[0];
-        if (/^\d{10,14}$/.test(userPart) && (myUserNum ? userPart !== myUserNum : true)) {
-          c.phoneNumber = '+' + userPart;
-        }
-      }
-
-      if ((!c.name || c.name === 'N/A') && c.userJid) {
-        try {
-          const contactObj = await client.getContactById(c.userJid);
-          if (contactObj) {
-            if (contactObj.number && /^\d{10,15}$/.test(contactObj.number) && (myUserNum ? contactObj.number !== myUserNum : true)) {
-              c.phoneNumber = '+' + contactObj.number;
-            }
-            const fetchedName = contactObj.name || contactObj.pushname || contactObj.formattedName || contactObj.shortName;
-            if (fetchedName && typeof fetchedName === 'string' && fetchedName.trim()) {
-              const cleanName = fetchedName.trim().replace(/^~\s*/, '');
-              if (cleanName && cleanName !== 'N/A' && !cleanName.includes('+') && !/^\d+$/.test(cleanName)) {
-                c.name = cleanName;
-              }
-            }
-          }
-        } catch (e) {}
-      }
-    }
-  }
-
-  // Deduplicate final records by phoneNumber or userJid
-  const finalMap = new Map();
-  if (extractedContacts && extractedContacts.length > 0) {
-    extractedContacts.forEach(c => {
-      const userPart = c.userJid ? c.userJid.split('@')[0] : '';
-      if (myUserNum && userPart === myUserNum) return;
-
-      const key = (c.phoneNumber && c.phoneNumber !== 'N/A') ? c.phoneNumber : c.userJid;
-      if (key) {
-        if (!finalMap.has(key)) {
-          finalMap.set(key, c);
-        } else {
-          const existing = finalMap.get(key);
-          if ((!existing.name || existing.name === 'N/A') && c.name && c.name !== 'N/A') {
-            existing.name = c.name;
-          }
-          if (c.isAdmin === 'Yes') {
-            existing.isAdmin = 'Yes';
-          }
-        }
-      }
-    });
-  }
-
-  const finalRecords = Array.from(finalMap.values());
-
-  const safeName = sanitizeFilename(targetGroup.name);
+  const safeName = sanitizeFilename(targetGroup.name || groupName);
   const timestamp = Date.now();
   const excelFilename = `whatsapp_${safeName}_contacts_${timestamp}.xlsx`;
   const excelFilePath = path.join(__dirname, excelFilename);
