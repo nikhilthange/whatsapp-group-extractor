@@ -163,22 +163,45 @@ io.on('connection', (socket) => {
       }
     });
 
+    const triggerGroupSync = async () => {
+      try {
+        const groups = await getGroupsWithRetry(client, 5, 1000);
+        if (groups && groups.length > 0) {
+          sessionObj.groups = groups;
+          console.log(`📋 [${sessionId}] Group Sync complete! Found ${groups.length} group chats.`);
+          if (sessionObj.socket) {
+            sessionObj.socket.emit('whatsapp_groups', { groups: sessionObj.groups });
+            sessionObj.socket.emit('groups', sessionObj.groups);
+            sessionObj.socket.emit('groups_loaded', { groups: sessionObj.groups });
+          }
+        }
+      } catch(e) {
+        console.warn(`⚠️ [${sessionId}] Error fetching groups:`, e.message);
+      }
+    };
+
     client.on('authenticated', () => {
-      console.log(`🔒 [${sessionId}] Client authenticated!`);
-      sessionObj.isAuthenticating = true;
+      console.log(`🔒 [${sessionId}] Client authenticated! Unlocking UI immediately.`);
+      sessionObj.isAuthenticating = false;
       sessionObj.isAuthenticated = true;
+      sessionObj.isReady = true;
       sessionObj.isInitializing = false;
       sessionObj.isLaunching = false;
-      sessionObj.statusState = 'authenticating';
+      sessionObj.statusState = 'connected';
       sessionObj.qrCodeDataUrl = null;
       sessionObj.lastActiveTime = Date.now();
 
       const userPhone = (client.info && client.info.wid) ? client.info.wid.user : '';
       sessionObj.userPhone = userPhone;
       if (sessionObj.socket) {
-        sessionObj.socket.emit('authenticated', { status: 'authenticated', userPhone, message: 'Logging in...' });
-        sessionObj.socket.emit('status', { status: 'authenticating', message: 'Logging in...' });
+        sessionObj.socket.emit('authenticated', { status: 'authenticated', userPhone, message: 'Connected!' });
+        sessionObj.socket.emit('ready', { userPhone, status: 'ready', message: 'Connected!' });
+        sessionObj.socket.emit('whatsapp_ready', { status: 'ready', userPhone });
+        sessionObj.socket.emit('status', { status: 'connected', userPhone, message: 'Connected!' });
       }
+
+      // Trigger instant background group fetch
+      triggerGroupSync();
     });
 
     client.on('ready', async () => {
@@ -201,16 +224,8 @@ io.on('connection', (socket) => {
         sessionObj.socket.emit('status', { status: sessionObj.statusState, userPhone, message: 'Connected!' });
       }
 
-      try {
-        sessionObj.groups = await getGroupsWithRetry(client, 5, 3000);
-        console.log(`📋 [${sessionId}] IndexedDB Sync complete! Found ${sessionObj.groups.length} group chats.`);
-        if (sessionObj.socket) {
-          sessionObj.socket.emit('whatsapp_groups', { groups: sessionObj.groups });
-          sessionObj.socket.emit('groups', sessionObj.groups);
-          sessionObj.socket.emit('groups_loaded', { groups: sessionObj.groups });
-        }
-      } catch(e) {
-        console.warn(`⚠️ [${sessionId}] Error fetching groups on ready:`, e.message);
+      if (!sessionObj.groups || sessionObj.groups.length === 0) {
+        triggerGroupSync();
       }
     });
 
