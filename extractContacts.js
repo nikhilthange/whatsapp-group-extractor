@@ -275,10 +275,10 @@ async function exportGroupContactsForClient(targetClient, targetGroup) {
           if (collections && collections.GroupMetadata) {
             try {
               if (typeof collections.GroupMetadata.get === 'function') {
-                groupMeta = collections.GroupMetadata.get(wid) || collections.GroupMetadata.get(serializedJid);
+                groupMeta = collections.GroupMetadata.get(serializedJid) || collections.GroupMetadata.get(wid) || collections.GroupMetadata.get(gJid);
               }
               if (!groupMeta && typeof collections.GroupMetadata.find === 'function') {
-                groupMeta = await collections.GroupMetadata.find(wid) || await collections.GroupMetadata.find(serializedJid);
+                groupMeta = await collections.GroupMetadata.find(serializedJid) || await collections.GroupMetadata.find(wid) || await collections.GroupMetadata.find(gJid);
               }
             } catch(e) {}
           }
@@ -302,10 +302,10 @@ async function exportGroupContactsForClient(targetClient, targetGroup) {
             if (collections && collections.GroupMetadata) {
               try {
                 if (typeof collections.GroupMetadata.find === 'function') {
-                  groupMeta = await collections.GroupMetadata.find(wid) || await collections.GroupMetadata.find(serializedJid);
+                  groupMeta = await collections.GroupMetadata.find(serializedJid) || await collections.GroupMetadata.find(wid) || await collections.GroupMetadata.find(gJid);
                 }
                 if (!groupMeta && typeof collections.GroupMetadata.get === 'function') {
-                  groupMeta = collections.GroupMetadata.get(wid) || collections.GroupMetadata.get(serializedJid);
+                  groupMeta = collections.GroupMetadata.get(serializedJid) || collections.GroupMetadata.get(wid) || collections.GroupMetadata.get(gJid);
                 }
                 if (!groupMeta && (collections.GroupMetadata.models || collections.GroupMetadata._models)) {
                   const models = Array.from(collections.GroupMetadata.models || collections.GroupMetadata._models);
@@ -324,7 +324,7 @@ async function exportGroupContactsForClient(targetClient, targetGroup) {
           if (collections && collections.Chat) {
             try {
               chatModel = typeof collections.Chat.get === 'function'
-                ? (collections.Chat.get(wid) || collections.Chat.get(serializedJid))
+                ? (collections.Chat.get(serializedJid) || collections.Chat.get(wid) || collections.Chat.get(gJid))
                 : null;
               if (!chatModel && (collections.Chat.models || collections.Chat._models)) {
                 const models = Array.from(collections.Chat.models || collections.Chat._models);
