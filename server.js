@@ -375,7 +375,7 @@ app.get('/api/groups', async (req, res) => {
 
 // 2. POST /api/export Endpoint - CSV Export
 app.post('/api/export', async (req, res) => {
-  const { groupId, groupJid, name, exportAll } = req.body;
+  const { groupId, groupJid, name, exportAll, groupIds } = req.body;
   const session = getSession(req);
 
   if (!session || !session.client || session.statusState !== 'connected') {
@@ -385,7 +385,22 @@ app.post('/api/export', async (req, res) => {
   try {
     let recordsToExport = [];
 
-    if (exportAll) {
+    if (groupIds && Array.isArray(groupIds) && groupIds.length > 0) {
+      const chunkSize = 5;
+      for (let i = 0; i < groupIds.length; i += chunkSize) {
+        const chunk = groupIds.slice(i, i + chunkSize);
+        const chunkResults = await Promise.all(chunk.map(g => {
+          const targetJid = typeof g === 'string' ? g : (g.groupJid || g.id);
+          const gName = typeof g === 'object' ? g.name : '';
+          return exportGroupContactsForClient(session.client, { groupJid: targetJid, name: gName }).catch(() => null);
+        }));
+        chunkResults.forEach(resData => {
+          if (resData && resData.finalRecords) {
+            recordsToExport.push(...resData.finalRecords);
+          }
+        });
+      }
+    } else if (exportAll) {
       const currentGroups = (session.groups && session.groups.length > 0) ? session.groups : await getGroupsWithRetry(session.client, 3, 1500);
       const chunkSize = 8;
       for (let i = 0; i < currentGroups.length; i += chunkSize) {
@@ -406,7 +421,7 @@ app.post('/api/export', async (req, res) => {
       recordsToExport = resData.finalRecords;
     }
 
-    const safeName = exportAll ? 'all_groups' : (recordsToExport[0]?.groupName ? recordsToExport[0].groupName.replace(/[^a-zA-Z0-9_\-]/g, '_') : 'group');
+    const safeName = groupIds ? `multi_${groupIds.length}_groups` : (exportAll ? 'all_groups' : (recordsToExport[0]?.groupName ? recordsToExport[0].groupName.replace(/[^a-zA-Z0-9_\-]/g, '_') : 'group'));
     const filename = `whatsapp_${safeName}_contacts_${Date.now()}.csv`;
 
     res.setHeader('Content-Type', 'text/csv');
@@ -426,7 +441,7 @@ app.post('/api/export', async (req, res) => {
 
 // 3. POST /api/export-excel Endpoint - Excel Export
 app.post('/api/export-excel', async (req, res) => {
-  const { groupId, groupJid, name, exportAll } = req.body;
+  const { groupId, groupJid, name, exportAll, groupIds } = req.body;
   const session = getSession(req);
 
   if (!session || !session.client || session.statusState !== 'connected') {
@@ -477,7 +492,22 @@ app.post('/api/export-excel', async (req, res) => {
     let recordsToExport = [];
     const targetJid = groupId || groupJid;
 
-    if (exportAll) {
+    if (groupIds && Array.isArray(groupIds) && groupIds.length > 0) {
+      const chunkSize = 5;
+      for (let i = 0; i < groupIds.length; i += chunkSize) {
+        const chunk = groupIds.slice(i, i + chunkSize);
+        const chunkResults = await Promise.all(chunk.map(g => {
+          const tJid = typeof g === 'string' ? g : (g.groupJid || g.id);
+          const gName = typeof g === 'object' ? g.name : '';
+          return exportGroupContactsForClient(session.client, { groupJid: tJid, name: gName }).catch(() => null);
+        }));
+        chunkResults.forEach(resData => {
+          if (resData && resData.finalRecords) {
+            recordsToExport.push(...resData.finalRecords);
+          }
+        });
+      }
+    } else if (exportAll) {
       const currentGroups = (session.groups && session.groups.length > 0) ? session.groups : await getGroupsWithRetry(session.client, 3, 1500);
       const chunkSize = 8;
       for (let i = 0; i < currentGroups.length; i += chunkSize) {
@@ -493,7 +523,7 @@ app.post('/api/export-excel', async (req, res) => {
       const resData = await exportGroupContactsForClient(session.client, { groupJid: targetJid, name });
       recordsToExport = resData.finalRecords;
     } else {
-      return res.status(400).json({ error: 'Group ID or exportAll: true is required.' });
+      return res.status(400).json({ error: 'Group ID, groupIds array, or exportAll: true is required.' });
     }
 
     recordsToExport.forEach((rec, idx) => {
@@ -532,7 +562,7 @@ app.post('/api/export-excel', async (req, res) => {
       column.width = Math.max(maxLen + 4, 12);
     });
 
-    const safeName = exportAll ? 'all_groups' : (recordsToExport[0]?.groupName ? recordsToExport[0].groupName.replace(/[^a-zA-Z0-9_\-]/g, '_') : 'group');
+    const safeName = groupIds ? `multi_${groupIds.length}_groups` : (exportAll ? 'all_groups' : (recordsToExport[0]?.groupName ? recordsToExport[0].groupName.replace(/[^a-zA-Z0-9_\-]/g, '_') : 'group'));
     const filename = `whatsapp_${safeName}_contacts_${Date.now()}.xlsx`;
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -548,13 +578,47 @@ app.post('/api/export-excel', async (req, res) => {
 
 // JSON extraction endpoint for in-dashboard table preview
 app.post('/api/extract', async (req, res) => {
-  const { groupJid, groupId, name } = req.body;
-  const targetJid = groupId || groupJid;
+  const { groupJid, groupId, name, groupIds } = req.body;
   const session = getSession(req);
 
   if (!session || !session.client || session.statusState !== 'connected') {
     return res.status(401).json({ error: 'WhatsApp is not authenticated. Scan QR code first.' });
   }
+
+  if (groupIds && Array.isArray(groupIds) && groupIds.length > 0) {
+    try {
+      console.log(`🌐 API Request [Session: ${session.sessionId}]: Extracting contacts for ${groupIds.length} selected groups`);
+      let allRecords = [];
+      const chunkSize = 5;
+      for (let i = 0; i < groupIds.length; i += chunkSize) {
+        const chunk = groupIds.slice(i, i + chunkSize);
+        const chunkResults = await Promise.all(chunk.map(g => {
+          const tJid = typeof g === 'string' ? g : (g.groupJid || g.id);
+          const gName = typeof g === 'object' ? g.name : '';
+          return exportGroupContactsForClient(session.client, { groupJid: tJid, name: gName }).catch(() => null);
+        }));
+        chunkResults.forEach(resData => {
+          if (resData && resData.finalRecords) {
+            allRecords.push(...resData.finalRecords);
+          }
+        });
+      }
+
+      return res.json({
+        success: true,
+        groupName: `${groupIds.length} Selected Groups`,
+        totalMembers: allRecords.length,
+        count: allRecords.length,
+        contacts: allRecords,
+        participants: allRecords
+      });
+    } catch (err) {
+      console.error('❌ Multi-group extraction error:', err);
+      return res.status(500).json({ error: err.message || 'Failed to extract contacts' });
+    }
+  }
+
+  const targetJid = groupId || groupJid;
   if (!targetJid) {
     return res.status(400).json({ error: 'Group ID is required.' });
   }

@@ -897,6 +897,7 @@
             <button class="btn btn-emerald-glow" id="btnExtract" onclick="extractSelectedGroup()">🚀 View Contacts Table</button>
             <button class="btn btn-purple-grad" id="btnExportCSV" onclick="exportSelectedGroupCSV()">📥 Export Group CSV</button>
             <button class="btn btn-emerald-glow" id="btnExportExcel" onclick="exportSelectedGroupExcel()">📊 Export to Excel (.xlsx)</button>
+            <button class="btn btn-cyan-glass" id="btnMultiSelectModal" onclick="openMultiGroupModal()">☑️ Select Multiple Groups</button>
             <button class="btn btn-glass-alt" id="btnExportAllCSV" onclick="exportAllGroupsCSV()">📦 Export All Groups</button>
             <button class="btn btn-danger-grad" id="btnSignOut" onclick="logoutSession()">🚪 Sign Out</button>
           </div>
@@ -1840,10 +1841,200 @@
       setTimeout(() => toast.classList.remove('show'), 3000);
     }
 
-    function escapeHtml(text) {
-      return (text || '').replace(/[&<>"']/g, function(m) {
-        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[m];
+    let multiSelectedGroupJids = new Set();
+
+    function openMultiGroupModal() {
+      if (!fetchedGroupsList || fetchedGroupsList.length === 0) {
+        return alert('No active WhatsApp groups found yet. Please wait for groups to load.');
+      }
+      document.getElementById('multiGroupModal').style.display = 'flex';
+      renderMultiGroupList();
+    }
+
+    function closeMultiGroupModal() {
+      document.getElementById('multiGroupModal').style.display = 'none';
+    }
+
+    function renderMultiGroupList() {
+      const container = document.getElementById('multiGroupList');
+      if (!container) return;
+      container.innerHTML = '';
+
+      const searchVal = (document.getElementById('multiGroupSearchInput')?.value || '').toLowerCase().trim();
+
+      const filtered = fetchedGroupsList.filter(g => {
+        const name = (g.name || '').toLowerCase();
+        return !searchVal || name.includes(searchVal);
       });
+
+      if (filtered.length === 0) {
+        container.innerHTML = `<div style="text-align:center; color:var(--text-muted); padding:2rem;">No groups found matching filter.</div>`;
+        return;
+      }
+
+      filtered.forEach(g => {
+        const jid = getGroupJid(g);
+        if (!jid) return;
+        const isChecked = multiSelectedGroupJids.has(jid);
+        const count = g.memberCount || g.count || 0;
+
+        const row = document.createElement('label');
+        row.style.cssText = `display:flex; align-items:center; justify-content:space-between; padding:0.65rem 0.9rem; background:${isChecked ? 'rgba(16, 185, 129, 0.15)' : 'rgba(255,255,255,0.04)'}; border:1px solid ${isChecked ? 'rgba(16, 185, 129, 0.4)' : 'rgba(255,255,255,0.08)'}; border-radius:0.75rem; cursor:pointer; transition:all 0.2s ease; gap:0.75rem;`;
+
+        row.innerHTML = `
+          <input type="checkbox" style="width:18px; height:18px; accent-color:#10b981; cursor:pointer;" ${isChecked ? 'checked' : ''} onchange="toggleMultiGroupSelection('${jid}', this.checked)">
+          <span style="font-weight:600; font-size:0.9rem; color:var(--text-primary); flex:1;">${escapeHtml(g.name)}</span>
+          <span style="font-size:0.78rem; background:rgba(255,255,255,0.1); padding:2px 8px; border-radius:10px; color:var(--accent-cyan); font-weight:600;">${count} members</span>
+        `;
+        container.appendChild(row);
+      });
+
+      updateMultiGroupBadge();
+    }
+
+    function toggleMultiGroupSelection(jid, isChecked) {
+      if (isChecked) {
+        multiSelectedGroupJids.add(jid);
+      } else {
+        multiSelectedGroupJids.delete(jid);
+      }
+      updateMultiGroupBadge();
+      renderMultiGroupList();
+    }
+
+    function selectAllMultiGroups(select) {
+      if (select) {
+        fetchedGroupsList.forEach(g => {
+          const jid = getGroupJid(g);
+          if (jid) multiSelectedGroupJids.add(jid);
+        });
+      } else {
+        multiSelectedGroupJids.clear();
+      }
+      renderMultiGroupList();
+    }
+
+    function updateMultiGroupBadge() {
+      const badge = document.getElementById('multiGroupCountBadge');
+      if (badge) {
+        badge.innerText = `☑️ ${multiSelectedGroupJids.size} of ${fetchedGroupsList.length} groups selected`;
+      }
+    }
+
+    function filterMultiGroupList() {
+      renderMultiGroupList();
+    }
+
+    async function extractMultiSelectedGroups() {
+      const jids = Array.from(multiSelectedGroupJids);
+      if (jids.length === 0) return alert('Please select at least one group checkbox.');
+
+      closeMultiGroupModal();
+
+      document.getElementById('extractLoading').style.display = 'block';
+      document.getElementById('extractLoading').innerText = `⏳ Extracting contacts for ${jids.length} selected groups... Please wait...`;
+      document.getElementById('btnExtract').disabled = true;
+
+      try {
+        const res = await apiFetch('/api/extract', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ groupIds: jids })
+        });
+        const data = await res.json();
+
+        if (data.success && data.contacts) {
+          rawContacts = data.contacts;
+          document.getElementById('statSelectedGroup').innerText = `${jids.length} Groups Selected`;
+          updateUI();
+          showToast(`Successfully extracted ${data.contacts.length} contacts across ${jids.length} groups!`);
+        } else {
+          alert('Extraction failed: ' + (data.error || 'Unknown error'));
+        }
+      } catch(err) {
+        alert('Error extracting multi-groups: ' + err.message);
+      } finally {
+        document.getElementById('extractLoading').style.display = 'none';
+        document.getElementById('btnExtract').disabled = false;
+      }
+    }
+
+    async function exportMultiSelectedGroupsCSV() {
+      const jids = Array.from(multiSelectedGroupJids);
+      if (jids.length === 0) return alert('Please select at least one group checkbox.');
+
+      closeMultiGroupModal();
+
+      document.getElementById('extractLoading').style.display = 'block';
+      document.getElementById('extractLoading').innerText = `⏳ Exporting CSV for ${jids.length} selected groups... Please wait...`;
+
+      try {
+        const res = await apiFetch('/api/export', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ groupIds: jids })
+        });
+
+        if (res.ok) {
+          const blob = await res.blob();
+          const filename = `whatsapp_multi_${jids.length}_groups_contacts_${Date.now()}.csv`;
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = filename;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          window.URL.revokeObjectURL(url);
+          showToast(`Downloaded CSV for ${jids.length} groups!`);
+        } else {
+          const err = await res.json().catch(() => ({}));
+          alert('CSV Export failed: ' + (err.error || 'Unknown error'));
+        }
+      } catch(err) {
+        alert('Error exporting CSV: ' + err.message);
+      } finally {
+        document.getElementById('extractLoading').style.display = 'none';
+      }
+    }
+
+    async function exportMultiSelectedGroupsExcel() {
+      const jids = Array.from(multiSelectedGroupJids);
+      if (jids.length === 0) return alert('Please select at least one group checkbox.');
+
+      closeMultiGroupModal();
+
+      document.getElementById('extractLoading').style.display = 'block';
+      document.getElementById('extractLoading').innerText = `⏳ Exporting Excel for ${jids.length} selected groups... Please wait...`;
+
+      try {
+        const res = await apiFetch('/api/export-excel', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ groupIds: jids })
+        });
+
+        if (res.ok) {
+          const blob = await res.blob();
+          const filename = `whatsapp_multi_${jids.length}_groups_contacts_${Date.now()}.xlsx`;
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = filename;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          window.URL.revokeObjectURL(url);
+          showToast(`Downloaded Excel (.xlsx) for ${jids.length} groups!`);
+        } else {
+          const err = await res.json().catch(() => ({}));
+          alert('Excel Export failed: ' + (err.error || 'Unknown error'));
+        }
+      } catch(err) {
+        alert('Error exporting Excel: ' + err.message);
+      } finally {
+        document.getElementById('extractLoading').style.display = 'none';
+      }
     }
 
     window.addEventListener('DOMContentLoaded', () => {
@@ -1868,5 +2059,38 @@
       }
     });
   </script>
+
+  <!-- Multi-Group Selection Modal -->
+  <div id="multiGroupModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px); z-index:9999; align-items:center; justify-content:center; padding:1.5rem;">
+    <div class="glass-card" style="width:100%; max-width:680px; max-height:85vh; display:flex; flex-direction:column; background:rgba(11, 15, 25, 0.95); border:1px solid rgba(255,255,255,0.18); box-shadow:0 25px 60px rgba(0,0,0,0.85); border-radius:1.35rem; padding:1.75rem;">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:1.1rem;">
+        <h3 style="font-size:1.3rem; font-weight:800; color:var(--accent-cyan); display:flex; align-items:center; gap:0.6rem;">
+          ☑️ Select Multiple WhatsApp Groups
+        </h3>
+        <button onclick="closeMultiGroupModal()" style="background:rgba(255,255,255,0.1); border:none; color:var(--text-primary); font-size:1.3rem; width:34px; height:34px; border-radius:50%; cursor:pointer; display:flex; align-items:center; justify-content:center;">&times;</button>
+      </div>
+
+      <div style="display:flex; gap:0.75rem; align-items:center; margin-bottom:0.85rem;">
+        <input type="text" id="multiGroupSearchInput" class="custom-select" style="font-size:0.88rem; padding:0.65rem 1rem; flex:1; margin-bottom:0;" placeholder="🔍 Search groups..." oninput="filterMultiGroupList()">
+        <button class="btn btn-glass-alt" style="height:40px; font-size:0.82rem; padding:0 1rem;" onclick="selectAllMultiGroups(true)">Select All</button>
+        <button class="btn btn-glass-alt" style="height:40px; font-size:0.82rem; padding:0 1rem;" onclick="selectAllMultiGroups(false)">Deselect All</button>
+      </div>
+
+      <div id="multiGroupCountBadge" style="font-size:0.85rem; font-weight:700; color:var(--accent-emerald-glow); margin-bottom:0.85rem;">
+        ☑️ 0 of 0 groups selected
+      </div>
+
+      <!-- Scrollable Group List -->
+      <div id="multiGroupList" style="flex:1; overflow-y:auto; max-height:340px; display:flex; flex-direction:column; gap:0.45rem; padding-right:0.4rem;">
+        <!-- Group Checkboxes rendered dynamically -->
+      </div>
+
+      <div style="display:flex; gap:0.75rem; flex-wrap:wrap; margin-top:1.35rem; border-top:1px solid rgba(255,255,255,0.12); padding-top:1.1rem;">
+        <button class="btn btn-emerald-glow" style="flex:1;" onclick="extractMultiSelectedGroups()">🚀 View Table</button>
+        <button class="btn btn-purple-grad" style="flex:1;" onclick="exportMultiSelectedGroupsCSV()">📥 Export CSV</button>
+        <button class="btn btn-emerald-glow" style="flex:1;" onclick="exportMultiSelectedGroupsExcel()">📊 Export Excel</button>
+      </div>
+    </div>
+  </div>
 </body>
 </html>
