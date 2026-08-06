@@ -251,7 +251,7 @@ async function exportGroupContactsForClient(targetClient, targetGroup) {
 
   // 1. Primary Pass: Deep In-Browser Store Evaluation with WAWebGroupQueryJob & LID Resolution
   if (targetClient && targetClient.pupPage) {
-    for (let attempt = 1; attempt <= 2; attempt++) {
+    for (let attempt = 1; attempt <= 4; attempt++) {
       try {
         const evalResult = await safeEvaluate(targetClient, async (gJid) => {
           let title = '';
@@ -470,6 +470,9 @@ async function exportGroupContactsForClient(targetClient, targetGroup) {
         }
       } catch(e) {
         console.warn(`[Group Contacts Sync] Attempt ${attempt} evaluation notice:`, e.message);
+      }
+      if (attempt < 4) {
+        await new Promise(r => setTimeout(r, 700));
       }
     }
   }
