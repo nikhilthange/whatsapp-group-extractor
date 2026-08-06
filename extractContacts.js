@@ -268,37 +268,48 @@ async function exportGroupContactsForClient(targetClient, targetGroup) {
           }
           const serializedJid = typeof wid === 'string' ? wid : (wid._serialized || gJid);
 
-          // Force fetch latest group metadata from WhatsApp Web backend server
-          const groupQueryJob = getModule('WAWebGroupQueryJob');
-          if (groupQueryJob && typeof groupQueryJob.queryAndUpdateGroupMetadataById === 'function') {
-            try {
-              await Promise.race([
-                groupQueryJob.queryAndUpdateGroupMetadataById({ id: serializedJid }),
-                new Promise(r => setTimeout(r, 4000))
-              ]).catch(() => {});
-            } catch(e) {}
-          }
-
-          // Trigger GroupMetadata collection update
-          const collections = getModule('WAWebCollections') || window.Store;
-          if (collections && collections.GroupMetadata && typeof collections.GroupMetadata.update === 'function') {
-            try {
-              await collections.GroupMetadata.update(wid).catch(() => {});
-            } catch(e) {}
-          }
-
-          // Search GroupMetadata Model
+          // 1. Async WhatsApp Web Store GroupMetadata fetcher
           let groupMeta = null;
+          const collections = getModule('WAWebCollections') || window.Store;
+
           if (collections && collections.GroupMetadata) {
+            if (typeof collections.GroupMetadata.find === 'function') {
+              try { groupMeta = await collections.GroupMetadata.find(wid) || await collections.GroupMetadata.find(serializedJid); } catch(e) {}
+            }
+            if (!groupMeta && typeof collections.GroupMetadata.query === 'function') {
+              try { groupMeta = await collections.GroupMetadata.query(wid) || await collections.GroupMetadata.query(serializedJid); } catch(e) {}
+            }
+            if (!groupMeta && typeof collections.GroupMetadata.get === 'function') {
+              try { groupMeta = collections.GroupMetadata.get(wid) || collections.GroupMetadata.get(serializedJid); } catch(e) {}
+            }
+          }
+
+          // 2. Query Job fetcher fallback
+          if (!groupMeta) {
+            const groupQueryJob = getModule('WAWebGroupQueryJob');
+            if (groupQueryJob && typeof groupQueryJob.queryAndUpdateGroupMetadataById === 'function') {
+              try {
+                await Promise.race([
+                  groupQueryJob.queryAndUpdateGroupMetadataById(wid),
+                  groupQueryJob.queryAndUpdateGroupMetadataById(serializedJid),
+                  new Promise(r => setTimeout(r, 4000))
+                ]).catch(() => {});
+              } catch(e) {}
+            }
+          }
+
+          // 3. Check GroupMetadata collection models
+          if (!groupMeta && collections && collections.GroupMetadata) {
             try {
-              groupMeta = typeof collections.GroupMetadata.get === 'function'
-                ? (collections.GroupMetadata.get(wid) || collections.GroupMetadata.get(serializedJid))
-                : null;
+              if (typeof collections.GroupMetadata.get === 'function') {
+                groupMeta = collections.GroupMetadata.get(wid) || collections.GroupMetadata.get(serializedJid);
+              }
               if (!groupMeta && (collections.GroupMetadata.models || collections.GroupMetadata._models)) {
                 const models = Array.from(collections.GroupMetadata.models || collections.GroupMetadata._models);
+                const targetUser = serializedJid.split('@')[0];
                 groupMeta = models.find(m => {
                   const mid = m.id ? (typeof m.id === 'string' ? m.id : (m.id._serialized || m.id.user || '')) : '';
-                  return mid === serializedJid || mid.includes(serializedJid) || serializedJid.includes(mid);
+                  return mid === serializedJid || (targetUser && mid.includes(targetUser));
                 });
               }
             } catch(e) {}
@@ -465,8 +476,17 @@ async function exportGroupContactsForClient(targetClient, targetGroup) {
       const chat = await targetClient.getChatById(targetJid).catch(() => null);
       if (chat) {
         if (chat.name) groupTitle = chat.name;
-        if (chat.participants && chat.participants.length > 0) {
-          participantsRaw = chat.participants.map(p => {
+
+        // Force fetch group metadata if native methods exist
+        if (typeof chat.fetchGroupMetadata === 'function') {
+          try { await chat.fetchGroupMetadata(); } catch(e) {}
+        } else if (chat.groupMetadata && typeof chat.groupMetadata.fetch === 'function') {
+          try { await chat.groupMetadata.fetch(); } catch(e) {}
+        }
+
+        const partsColl = (chat.groupMetadata && chat.groupMetadata.participants) || chat.participants;
+        if (partsColl && partsColl.length > 0) {
+          participantsRaw = partsColl.map(p => {
             const pIdObj = p.id || {};
             const sId = typeof pIdObj === 'string' ? pIdObj : (pIdObj._serialized || (pIdObj.user ? pIdObj.user + '@c.us' : ''));
             const userNum = pIdObj.user || (typeof sId === 'string' ? sId.split('@')[0] : '');
