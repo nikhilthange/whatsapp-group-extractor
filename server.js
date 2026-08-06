@@ -28,10 +28,10 @@ const io = new Server(server, {
 });
 
 const PORT = process.env.PORT || 3000;
-const MAX_ACTIVE_SESSIONS = parseInt(process.env.MAX_ACTIVE_SESSIONS || '2', 10);
-const IDLE_SESSION_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes idle cleanup
+const MAX_ACTIVE_SESSIONS = parseInt(process.env.MAX_ACTIVE_SESSIONS || '10', 10);
+const IDLE_SESSION_TIMEOUT_MS = parseInt(process.env.IDLE_SESSION_TIMEOUT_MS || String(20 * 60 * 60 * 1000), 10); // 20 hours idle cleanup
 
-// Periodic Garbage Collection to keep RAM under 350MB
+// Periodic Garbage Collection to keep RAM optimized
 setInterval(() => {
   if (global.gc) {
     try {
@@ -69,7 +69,7 @@ io.on('connection', (socket) => {
 
   if (sessionObj) {
     if (sessionObj.disconnectTimeout) {
-      console.log(`⏱️ Cleared 10-minute idle disconnect timer for reconnected session: ${sessionId}`);
+      console.log(`⏱️ Cleared 20-hour idle disconnect timer for reconnected session: ${sessionId}`);
       clearTimeout(sessionObj.disconnectTimeout);
       sessionObj.disconnectTimeout = null;
     }
@@ -256,12 +256,20 @@ io.on('connection', (socket) => {
   }
 
   socket.on('disconnect', () => {
-    console.log(`🔌 Socket disconnected ID: ${socket.id} (Session ID: ${sessionId}). Persistent WhatsApp session retained indefinitely.`);
+    console.log(`🔌 Socket disconnected ID: ${socket.id} (Session ID: ${sessionId}). Retaining active session for 20 hours.`);
     if (sessionObj && sessionObj.socket && sessionObj.socket.id === socket.id) {
       sessionObj.socket = null;
     }
     if (sessionObj) {
       sessionObj.lastActiveTime = Date.now();
+      if (sessionObj.disconnectTimeout) clearTimeout(sessionObj.disconnectTimeout);
+      sessionObj.disconnectTimeout = setTimeout(async () => {
+        console.log(`⏱️ [Idle Cleanup] Session ${sessionId} idle for 20 hours. Cleaning up browser instance...`);
+        try {
+          await destroyWhatsAppSession(sessionId, sessionObj.client);
+        } catch(e) {}
+        activeSessions.delete(sessionId);
+      }, IDLE_SESSION_TIMEOUT_MS);
     }
   });
 });
