@@ -268,24 +268,23 @@ async function exportGroupContactsForClient(targetClient, targetGroup) {
           }
           const serializedJid = typeof wid === 'string' ? wid : (wid._serialized || gJid);
 
-          // 1. Async WhatsApp Web Store GroupMetadata fetcher
+          // 1. Direct cache lookup for GroupMetadata
           let groupMeta = null;
           const collections = getModule('WAWebCollections') || window.Store;
 
           if (collections && collections.GroupMetadata) {
-            if (typeof collections.GroupMetadata.find === 'function') {
-              try { groupMeta = await collections.GroupMetadata.find(wid) || await collections.GroupMetadata.find(serializedJid); } catch(e) {}
-            }
-            if (!groupMeta && typeof collections.GroupMetadata.query === 'function') {
-              try { groupMeta = await collections.GroupMetadata.query(wid) || await collections.GroupMetadata.query(serializedJid); } catch(e) {}
-            }
-            if (!groupMeta && typeof collections.GroupMetadata.get === 'function') {
-              try { groupMeta = collections.GroupMetadata.get(wid) || collections.GroupMetadata.get(serializedJid); } catch(e) {}
-            }
+            try {
+              if (typeof collections.GroupMetadata.get === 'function') {
+                groupMeta = collections.GroupMetadata.get(wid) || collections.GroupMetadata.get(serializedJid);
+              }
+              if (!groupMeta && typeof collections.GroupMetadata.find === 'function') {
+                groupMeta = await collections.GroupMetadata.find(wid) || await collections.GroupMetadata.find(serializedJid);
+              }
+            } catch(e) {}
           }
 
-          // 2. Query Job fetcher fallback
-          if (!groupMeta) {
+          // 2. Query Job fetcher fallback if not cached
+          if (!groupMeta || !groupMeta.participants) {
             const groupQueryJob = getModule('WAWebGroupQueryJob');
             if (groupQueryJob && typeof groupQueryJob.queryAndUpdateGroupMetadataById === 'function') {
               try {
@@ -298,23 +297,26 @@ async function exportGroupContactsForClient(targetClient, targetGroup) {
                 ]).catch(() => {});
               } catch(e) {}
             }
-          }
 
-          // 3. Check GroupMetadata collection models
-          if (!groupMeta && collections && collections.GroupMetadata) {
-            try {
-              if (typeof collections.GroupMetadata.get === 'function') {
-                groupMeta = collections.GroupMetadata.get(wid) || collections.GroupMetadata.get(serializedJid);
-              }
-              if (!groupMeta && (collections.GroupMetadata.models || collections.GroupMetadata._models)) {
-                const models = Array.from(collections.GroupMetadata.models || collections.GroupMetadata._models);
-                const targetUser = serializedJid.split('@')[0];
-                groupMeta = models.find(m => {
-                  const mid = m.id ? (typeof m.id === 'string' ? m.id : (m.id._serialized || m.id.user || '')) : '';
-                  return mid === serializedJid || (targetUser && mid.includes(targetUser));
-                });
-              }
-            } catch(e) {}
+            // 3. Re-read GroupMetadata after server query
+            if (collections && collections.GroupMetadata) {
+              try {
+                if (typeof collections.GroupMetadata.find === 'function') {
+                  groupMeta = await collections.GroupMetadata.find(wid) || await collections.GroupMetadata.find(serializedJid);
+                }
+                if (!groupMeta && typeof collections.GroupMetadata.get === 'function') {
+                  groupMeta = collections.GroupMetadata.get(wid) || collections.GroupMetadata.get(serializedJid);
+                }
+                if (!groupMeta && (collections.GroupMetadata.models || collections.GroupMetadata._models)) {
+                  const models = Array.from(collections.GroupMetadata.models || collections.GroupMetadata._models);
+                  const targetUser = serializedJid.split('@')[0];
+                  groupMeta = models.find(m => {
+                    const mid = m.id ? (typeof m.id === 'string' ? m.id : (m.id._serialized || m.id.user || '')) : '';
+                    return mid === serializedJid || (targetUser && mid.includes(targetUser));
+                  });
+                }
+              } catch(e) {}
+            }
           }
 
           // Search Chat Model
