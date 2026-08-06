@@ -290,8 +290,10 @@ async function exportGroupContactsForClient(targetClient, targetGroup) {
             if (groupQueryJob && typeof groupQueryJob.queryAndUpdateGroupMetadataById === 'function') {
               try {
                 await Promise.race([
-                  groupQueryJob.queryAndUpdateGroupMetadataById(wid),
+                  groupQueryJob.queryAndUpdateGroupMetadataById({ id: serializedJid }),
+                  groupQueryJob.queryAndUpdateGroupMetadataById({ id: wid }),
                   groupQueryJob.queryAndUpdateGroupMetadataById(serializedJid),
+                  groupQueryJob.queryAndUpdateGroupMetadataById(wid),
                   new Promise(r => setTimeout(r, 4000))
                 ]).catch(() => {});
               } catch(e) {}
