@@ -163,45 +163,22 @@ io.on('connection', (socket) => {
       }
     });
 
-    const triggerGroupSync = async () => {
-      try {
-        const groups = await getGroupsWithRetry(client, 5, 1000);
-        if (groups && groups.length > 0) {
-          sessionObj.groups = groups;
-          console.log(`📋 [${sessionId}] Group Sync complete! Found ${groups.length} group chats.`);
-          if (sessionObj.socket) {
-            sessionObj.socket.emit('whatsapp_groups', { groups: sessionObj.groups });
-            sessionObj.socket.emit('groups', sessionObj.groups);
-            sessionObj.socket.emit('groups_loaded', { groups: sessionObj.groups });
-          }
-        }
-      } catch(e) {
-        console.warn(`⚠️ [${sessionId}] Error fetching groups:`, e.message);
-      }
-    };
-
     client.on('authenticated', () => {
-      console.log(`🔒 [${sessionId}] Client authenticated! Unlocking UI immediately.`);
-      sessionObj.isAuthenticating = false;
+      console.log(`🔒 [${sessionId}] Client authenticated!`);
+      sessionObj.isAuthenticating = true;
       sessionObj.isAuthenticated = true;
-      sessionObj.isReady = true;
       sessionObj.isInitializing = false;
       sessionObj.isLaunching = false;
-      sessionObj.statusState = 'connected';
+      sessionObj.statusState = 'authenticating';
       sessionObj.qrCodeDataUrl = null;
       sessionObj.lastActiveTime = Date.now();
 
       const userPhone = (client.info && client.info.wid) ? client.info.wid.user : '';
       sessionObj.userPhone = userPhone;
       if (sessionObj.socket) {
-        sessionObj.socket.emit('authenticated', { status: 'authenticated', userPhone, message: 'Connected!' });
-        sessionObj.socket.emit('ready', { userPhone, status: 'ready', message: 'Connected!' });
-        sessionObj.socket.emit('whatsapp_ready', { status: 'ready', userPhone });
-        sessionObj.socket.emit('status', { status: 'connected', userPhone, message: 'Connected!' });
+        sessionObj.socket.emit('authenticated', { status: 'authenticated', userPhone, message: 'Logging in...' });
+        sessionObj.socket.emit('status', { status: 'authenticating', message: 'Logging in...' });
       }
-
-      // Trigger instant background group fetch
-      triggerGroupSync();
     });
 
     client.on('ready', async () => {
@@ -224,8 +201,16 @@ io.on('connection', (socket) => {
         sessionObj.socket.emit('status', { status: sessionObj.statusState, userPhone, message: 'Connected!' });
       }
 
-      if (!sessionObj.groups || sessionObj.groups.length === 0) {
-        triggerGroupSync();
+      try {
+        sessionObj.groups = await getGroupsWithRetry(client, 5, 1500);
+        console.log(`📋 [${sessionId}] Group Sync complete! Found ${sessionObj.groups.length} group chats.`);
+        if (sessionObj.socket) {
+          sessionObj.socket.emit('whatsapp_groups', { groups: sessionObj.groups });
+          sessionObj.socket.emit('groups', sessionObj.groups);
+          sessionObj.socket.emit('groups_loaded', { groups: sessionObj.groups });
+        }
+      } catch(e) {
+        console.warn(`⚠️ [${sessionId}] Error fetching groups on ready:`, e.message);
       }
     });
 
@@ -393,20 +378,6 @@ app.get('/api/groups', async (req, res) => {
 // Helper to process a list of groups sequentially with automatic retries and breathing room
 async function extractGroupListSequentially(client, groups) {
   const allRecords = [];
-
-  // Wait up to 8 seconds for WhatsApp Web Store modules to finish mounting if newly authenticated
-  for (let wait = 0; wait < 16; wait++) {
-    try {
-      const isReady = await safeEvaluate(client, () => {
-        const getModule = (name) => { try { return window.require ? window.require(name) : null; } catch(e) { return null; } };
-        const testColl = getModule('WAWebCollections') || window.Store;
-        return Boolean(testColl && (testColl.GroupMetadata || testColl.Chat));
-      }).catch(() => false);
-      if (isReady) break;
-    } catch(e) {}
-    await new Promise(r => setTimeout(r, 500));
-  }
-
   for (let i = 0; i < groups.length; i++) {
     const g = groups[i];
     const targetJid = typeof g === 'string' ? g : (g.groupJid || g.id || (g.id && g.id._serialized));
