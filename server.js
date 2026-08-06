@@ -163,26 +163,10 @@ io.on('connection', (socket) => {
       }
     });
 
-    client.on('authenticated', () => {
-      console.log(`🔒 [${sessionId}] Client authenticated!`);
-      sessionObj.isAuthenticating = true;
-      sessionObj.isAuthenticated = true;
-      sessionObj.isInitializing = false;
-      sessionObj.isLaunching = false;
-      sessionObj.statusState = 'authenticating';
-      sessionObj.qrCodeDataUrl = null;
-      sessionObj.lastActiveTime = Date.now();
+    const markSessionConnectedAndSync = async () => {
+      if (sessionObj.statusState === 'connected') return;
 
-      const userPhone = (client.info && client.info.wid) ? client.info.wid.user : '';
-      sessionObj.userPhone = userPhone;
-      if (sessionObj.socket) {
-        sessionObj.socket.emit('authenticated', { status: 'authenticated', userPhone, message: 'Logging in...' });
-        sessionObj.socket.emit('status', { status: 'authenticating', message: 'Logging in...' });
-      }
-    });
-
-    client.on('ready', async () => {
-      console.log(`🚀 [${sessionId}] WhatsApp Client is authenticated & ready!`);
+      console.log(`🚀 [${sessionId}] WhatsApp Store is loaded & session is CONNECTED!`);
       sessionObj.isAuthenticating = false;
       sessionObj.isAuthenticated = true;
       sessionObj.isReady = true;
@@ -192,7 +176,7 @@ io.on('connection', (socket) => {
       sessionObj.qrCodeDataUrl = null;
       sessionObj.lastActiveTime = Date.now();
 
-      const userPhone = (client.info && client.info.wid) ? client.info.wid.user : '';
+      const userPhone = (client.info && client.info.wid) ? client.info.wid.user : sessionObj.userPhone;
       sessionObj.userPhone = userPhone;
 
       if (sessionObj.socket) {
@@ -202,8 +186,8 @@ io.on('connection', (socket) => {
       }
 
       try {
-        sessionObj.groups = await getGroupsWithRetry(client, 5, 1500);
-        console.log(`📋 [${sessionId}] Group Sync complete! Found ${sessionObj.groups.length} group chats.`);
+        sessionObj.groups = await getGroupsWithRetry(client, 5, 800);
+        console.log(`📋 [${sessionId}] Fast Group Sync complete! Found ${sessionObj.groups.length} group chats.`);
         if (sessionObj.socket) {
           sessionObj.socket.emit('whatsapp_groups', { groups: sessionObj.groups });
           sessionObj.socket.emit('groups', sessionObj.groups);
@@ -212,6 +196,54 @@ io.on('connection', (socket) => {
       } catch(e) {
         console.warn(`⚠️ [${sessionId}] Error fetching groups on ready:`, e.message);
       }
+    };
+
+    client.on('authenticated', () => {
+      console.log(`🔒 [${sessionId}] Client authenticated! Starting fast Store detection...`);
+      sessionObj.isAuthenticating = true;
+      sessionObj.isAuthenticated = true;
+      sessionObj.isInitializing = false;
+      sessionObj.isLaunching = false;
+      sessionObj.statusState = 'authenticating';
+      sessionObj.qrCodeDataUrl = null;
+      sessionObj.lastActiveTime = Date.now();
+
+      const userPhone = (client.info && client.info.wid) ? client.info.wid.user : '';
+      if (userPhone) sessionObj.userPhone = userPhone;
+
+      if (sessionObj.socket) {
+        sessionObj.socket.emit('authenticated', { status: 'authenticated', userPhone: sessionObj.userPhone, message: 'Logging in...' });
+        sessionObj.socket.emit('status', { status: 'authenticating', message: 'Logging in...' });
+      }
+
+      // Fast Store Polling: Check every 500ms for window.Store / WAWebCollections
+      let attempts = 0;
+      const pollStoreInterval = setInterval(async () => {
+        attempts++;
+        if (sessionObj.statusState === 'connected' || attempts > 30) {
+          clearInterval(pollStoreInterval);
+          return;
+        }
+
+        try {
+          if (client && client.pupPage && !client.pupPage.isClosed()) {
+            const hasStore = await safeEvaluate(client, () => {
+              const getModule = (name) => { try { return window.require ? window.require(name) : null; } catch(e) { return null; } };
+              const collections = getModule('WAWebCollections') || window.Store;
+              return Boolean(collections && (collections.Chat || collections.GroupMetadata));
+            }).catch(() => false);
+
+            if (hasStore) {
+              clearInterval(pollStoreInterval);
+              markSessionConnectedAndSync();
+            }
+          }
+        } catch(e) {}
+      }, 500);
+    });
+
+    client.on('ready', async () => {
+      markSessionConnectedAndSync();
     });
 
     client.on('disconnected', async (reason) => {
