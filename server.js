@@ -393,6 +393,20 @@ app.get('/api/groups', async (req, res) => {
 // Helper to process a list of groups sequentially with automatic retries and breathing room
 async function extractGroupListSequentially(client, groups) {
   const allRecords = [];
+
+  // Wait up to 8 seconds for WhatsApp Web Store modules to finish mounting if newly authenticated
+  for (let wait = 0; wait < 16; wait++) {
+    try {
+      const isReady = await safeEvaluate(client, () => {
+        const getModule = (name) => { try { return window.require ? window.require(name) : null; } catch(e) { return null; } };
+        const testColl = getModule('WAWebCollections') || window.Store;
+        return Boolean(testColl && (testColl.GroupMetadata || testColl.Chat));
+      }).catch(() => false);
+      if (isReady) break;
+    } catch(e) {}
+    await new Promise(r => setTimeout(r, 500));
+  }
+
   for (let i = 0; i < groups.length; i++) {
     const g = groups[i];
     const targetJid = typeof g === 'string' ? g : (g.groupJid || g.id || (g.id && g.id._serialized));

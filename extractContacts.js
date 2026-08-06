@@ -261,6 +261,13 @@ async function exportGroupContactsForClient(targetClient, targetGroup) {
             try { return window.require ? window.require(name) : null; } catch(e) { return null; }
           };
 
+          // Wait up to 10s for WhatsApp Web Store modules to initialize if newly authenticated
+          for (let wait = 0; wait < 20; wait++) {
+            const testColl = getModule('WAWebCollections') || window.Store;
+            if (testColl && (testColl.GroupMetadata || testColl.Chat)) break;
+            await new Promise(r => setTimeout(r, 500));
+          }
+
           const widFactory = getModule('WAWebWidFactory');
           let wid = gJid;
           if (widFactory && typeof widFactory.createWid === 'function') {
