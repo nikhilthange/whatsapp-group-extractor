@@ -373,6 +373,35 @@ app.get('/api/groups', async (req, res) => {
   }
 });
 
+// Helper to process a list of groups sequentially with automatic retries and breathing room
+async function extractGroupListSequentially(client, groups) {
+  const allRecords = [];
+  for (let i = 0; i < groups.length; i++) {
+    const g = groups[i];
+    const targetJid = typeof g === 'string' ? g : (g.groupJid || g.id || (g.id && g.id._serialized));
+    const gName = typeof g === 'object' ? g.name : '';
+    if (!targetJid) continue;
+
+    let resData = null;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        resData = await exportGroupContactsForClient(client, { groupJid: targetJid, name: gName });
+        if (resData && resData.finalRecords && resData.finalRecords.length > 0) {
+          break;
+        }
+      } catch (e) {}
+      await new Promise(r => setTimeout(r, 500));
+    }
+
+    if (resData && resData.finalRecords) {
+      allRecords.push(...resData.finalRecords);
+    }
+    // 250ms pause between groups to keep Puppeteer and WhatsApp socket healthy
+    await new Promise(r => setTimeout(r, 250));
+  }
+  return allRecords;
+}
+
 // 2. POST /api/export Endpoint - CSV Export
 app.post('/api/export', async (req, res) => {
   const { groupId, groupJid, name, exportAll, groupIds } = req.body;
@@ -386,39 +415,24 @@ app.post('/api/export', async (req, res) => {
     let recordsToExport = [];
 
     if (groupIds && Array.isArray(groupIds) && groupIds.length > 0) {
-      const chunkSize = 5;
-      for (let i = 0; i < groupIds.length; i += chunkSize) {
-        const chunk = groupIds.slice(i, i + chunkSize);
-        const chunkResults = await Promise.all(chunk.map(g => {
-          const targetJid = typeof g === 'string' ? g : (g.groupJid || g.id);
-          const gName = typeof g === 'object' ? g.name : '';
-          return exportGroupContactsForClient(session.client, { groupJid: targetJid, name: gName }).catch(() => null);
-        }));
-        chunkResults.forEach(resData => {
-          if (resData && resData.finalRecords) {
-            recordsToExport.push(...resData.finalRecords);
-          }
-        });
-      }
+      recordsToExport = await extractGroupListSequentially(session.client, groupIds);
     } else if (exportAll) {
       const currentGroups = (session.groups && session.groups.length > 0) ? session.groups : await getGroupsWithRetry(session.client, 3, 1500);
-      const chunkSize = 8;
-      for (let i = 0; i < currentGroups.length; i += chunkSize) {
-        const chunk = currentGroups.slice(i, i + chunkSize);
-        const chunkResults = await Promise.all(chunk.map(g => exportGroupContactsForClient(session.client, g).catch(() => null)));
-        chunkResults.forEach(resData => {
-          if (resData && resData.finalRecords) {
-            recordsToExport.push(...resData.finalRecords);
-          }
-        });
-      }
+      recordsToExport = await extractGroupListSequentially(session.client, currentGroups);
     } else {
       const targetJid = groupId || groupJid;
       if (!targetJid) {
         return res.status(400).json({ error: 'Group ID is required.' });
       }
-      const resData = await exportGroupContactsForClient(session.client, { groupJid: targetJid, name });
-      recordsToExport = resData.finalRecords;
+      let resData = null;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          resData = await exportGroupContactsForClient(session.client, { groupJid: targetJid, name });
+          if (resData && resData.finalRecords && resData.finalRecords.length > 0) break;
+        } catch(e) {}
+        await new Promise(r => setTimeout(r, 500));
+      }
+      recordsToExport = resData ? (resData.finalRecords || []) : [];
     }
 
     const safeName = groupIds ? `multi_${groupIds.length}_groups` : (exportAll ? 'all_groups' : (recordsToExport[0]?.groupName ? recordsToExport[0].groupName.replace(/[^a-zA-Z0-9_\-]/g, '_') : 'group'));
@@ -493,35 +507,20 @@ app.post('/api/export-excel', async (req, res) => {
     const targetJid = groupId || groupJid;
 
     if (groupIds && Array.isArray(groupIds) && groupIds.length > 0) {
-      const chunkSize = 5;
-      for (let i = 0; i < groupIds.length; i += chunkSize) {
-        const chunk = groupIds.slice(i, i + chunkSize);
-        const chunkResults = await Promise.all(chunk.map(g => {
-          const tJid = typeof g === 'string' ? g : (g.groupJid || g.id);
-          const gName = typeof g === 'object' ? g.name : '';
-          return exportGroupContactsForClient(session.client, { groupJid: tJid, name: gName }).catch(() => null);
-        }));
-        chunkResults.forEach(resData => {
-          if (resData && resData.finalRecords) {
-            recordsToExport.push(...resData.finalRecords);
-          }
-        });
-      }
+      recordsToExport = await extractGroupListSequentially(session.client, groupIds);
     } else if (exportAll) {
       const currentGroups = (session.groups && session.groups.length > 0) ? session.groups : await getGroupsWithRetry(session.client, 3, 1500);
-      const chunkSize = 8;
-      for (let i = 0; i < currentGroups.length; i += chunkSize) {
-        const chunk = currentGroups.slice(i, i + chunkSize);
-        const chunkResults = await Promise.all(chunk.map(g => exportGroupContactsForClient(session.client, g).catch(() => null)));
-        chunkResults.forEach(resData => {
-          if (resData && resData.finalRecords) {
-            recordsToExport.push(...resData.finalRecords);
-          }
-        });
-      }
+      recordsToExport = await extractGroupListSequentially(session.client, currentGroups);
     } else if (targetJid) {
-      const resData = await exportGroupContactsForClient(session.client, { groupJid: targetJid, name });
-      recordsToExport = resData.finalRecords;
+      let resData = null;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          resData = await exportGroupContactsForClient(session.client, { groupJid: targetJid, name });
+          if (resData && resData.finalRecords && resData.finalRecords.length > 0) break;
+        } catch(e) {}
+        await new Promise(r => setTimeout(r, 500));
+      }
+      recordsToExport = resData ? (resData.finalRecords || []) : [];
     } else {
       return res.status(400).json({ error: 'Group ID, groupIds array, or exportAll: true is required.' });
     }
@@ -588,21 +587,7 @@ app.post('/api/extract', async (req, res) => {
   if (groupIds && Array.isArray(groupIds) && groupIds.length > 0) {
     try {
       console.log(`🌐 API Request [Session: ${session.sessionId}]: Extracting contacts for ${groupIds.length} selected groups`);
-      let allRecords = [];
-      const chunkSize = 5;
-      for (let i = 0; i < groupIds.length; i += chunkSize) {
-        const chunk = groupIds.slice(i, i + chunkSize);
-        const chunkResults = await Promise.all(chunk.map(g => {
-          const tJid = typeof g === 'string' ? g : (g.groupJid || g.id);
-          const gName = typeof g === 'object' ? g.name : '';
-          return exportGroupContactsForClient(session.client, { groupJid: tJid, name: gName }).catch(() => null);
-        }));
-        chunkResults.forEach(resData => {
-          if (resData && resData.finalRecords) {
-            allRecords.push(...resData.finalRecords);
-          }
-        });
-      }
+      const allRecords = await extractGroupListSequentially(session.client, groupIds);
 
       return res.json({
         success: true,
@@ -625,15 +610,24 @@ app.post('/api/extract', async (req, res) => {
 
   try {
     console.log(`🌐 API Request [Session: ${session.sessionId}]: Extracting contacts for group "${name || targetJid}" (${targetJid})`);
-    const result = await exportGroupContactsForClient(session.client, { groupJid: targetJid, name });
+    let result = null;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        result = await exportGroupContactsForClient(session.client, { groupJid: targetJid, name });
+        if (result && result.finalRecords && result.finalRecords.length > 0) break;
+      } catch(e) {}
+      await new Promise(r => setTimeout(r, 500));
+    }
+
+    const records = result ? (result.finalRecords || []) : [];
 
     res.json({
       success: true,
-      groupName: result.groupName,
-      totalMembers: result.finalRecords.length,
-      count: result.finalRecords.length,
-      contacts: result.finalRecords,
-      participants: result.finalRecords
+      groupName: result ? result.groupName : (name || 'WhatsApp Group'),
+      totalMembers: records.length,
+      count: records.length,
+      contacts: records,
+      participants: records
     });
   } catch (err) {
     console.error('❌ Group extraction error:', err);
