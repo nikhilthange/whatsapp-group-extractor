@@ -1841,6 +1841,12 @@
       setTimeout(() => toast.classList.remove('show'), 3000);
     }
 
+    function escapeHtml(text) {
+      return (text || '').replace(/[&<>"']/g, function(m) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[m];
+      });
+    }
+
     let multiSelectedGroupJids = new Set();
 
     function openMultiGroupModal() {
