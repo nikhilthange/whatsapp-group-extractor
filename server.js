@@ -216,30 +216,44 @@ io.on('connection', (socket) => {
         sessionObj.socket.emit('status', { status: 'authenticating', message: 'Logging in...' });
       }
 
-      // Fast Store Polling: Check every 500ms for window.Store / WAWebCollections
+      // Fast Store Polling: Check every 300ms for client.info or window.Store / WAWebCollections
       let attempts = 0;
       const pollStoreInterval = setInterval(async () => {
         attempts++;
-        if (sessionObj.statusState === 'connected' || attempts > 30) {
+        if (sessionObj.statusState === 'connected' || attempts > 50) {
           clearInterval(pollStoreInterval);
           return;
         }
 
         try {
+          if (client && client.info && client.info.wid) {
+            clearInterval(pollStoreInterval);
+            return markSessionConnectedAndSync();
+          }
+
           if (client && client.pupPage && !client.pupPage.isClosed()) {
             const hasStore = await safeEvaluate(client, () => {
-              const getModule = (name) => { try { return window.require ? window.require(name) : null; } catch(e) { return null; } };
-              const collections = getModule('WAWebCollections') || window.Store;
-              return Boolean(collections && (collections.Chat || collections.GroupMetadata));
+              try {
+                if (window.Store && (window.Store.Chat || window.Store.GroupMetadata)) return true;
+                if (window.require) {
+                  const m1 = window.require('WAWebCollections');
+                  if (m1 && (m1.Chat || m1.GroupMetadata)) return true;
+                  const m2 = window.require('WAWebChatCollection');
+                  if (m2) return true;
+                  const m3 = window.require('WAWebGroupMetadataCollection');
+                  if (m3) return true;
+                }
+              } catch(e) {}
+              return false;
             }).catch(() => false);
 
             if (hasStore) {
               clearInterval(pollStoreInterval);
-              markSessionConnectedAndSync();
+              return markSessionConnectedAndSync();
             }
           }
         } catch(e) {}
-      }, 500);
+      }, 300);
     });
 
     client.on('ready', async () => {
