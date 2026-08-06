@@ -1224,13 +1224,19 @@
         const res = await apiFetch('/api/status');
         if (res.ok) {
           const data = await res.json();
-          if (data.authenticated) {
+          if (data.status === 'connected' || (data.authenticated && data.status !== 'authenticating')) {
             isSessionAuthenticated = true;
             updateHeaderStatus(data.userPhone ? `Connected! (+${data.userPhone})` : 'Connected!', '#10b981');
             document.getElementById('loadingBox').style.display = 'none';
             document.getElementById('qrBox').style.display = 'none';
             document.getElementById('groupSelectBox').style.display = 'block';
             fetchGroups();
+          } else if (data.status === 'authenticating' || data.status === 'authenticated') {
+            updateHeaderStatus(data.userPhone ? `Logging in... (+${data.userPhone})` : 'Logging in...', '#fbbf24');
+            document.getElementById('loadingBox').style.display = 'block';
+            document.getElementById('loadingBox').querySelector('h3').innerText = '🔒 Logging into WhatsApp... Synchronizing active chats...';
+            document.getElementById('qrBox').style.display = 'none';
+            document.getElementById('groupSelectBox').style.display = 'none';
           } else {
             isSessionAuthenticated = false;
             updateHeaderStatus('Waiting for scan...', '#38bdf8');

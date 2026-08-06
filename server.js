@@ -305,8 +305,10 @@ app.get('/api/status', (req, res) => {
     });
   }
   const userPhone = session.userPhone || (session.client && session.client.info && session.client.info.wid ? session.client.info.wid.user : '');
+  const isConn = session.statusState === 'connected' || Boolean(session.client && session.client.info && session.client.info.wid);
+
   res.status(200).json({
-    authenticated: session.statusState === 'connected',
+    authenticated: isConn,
     status: session.statusState,
     qr: session.qrCodeDataUrl,
     userPhone,
